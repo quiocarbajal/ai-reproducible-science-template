@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>README</title>
+    <title>README - Scientific Data Tracking</title>
     <!-- MathJax for LaTeX Math Formulas -->
     <script>
     MathJax = {
@@ -37,6 +37,9 @@
                 --color-neutral-muted: rgba(110, 118, 129, 0.4);
             }
         }
+        html {
+            scroll-behavior: smooth;
+        }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
             font-size: 16px;
@@ -44,16 +47,125 @@
             color: var(--color-fg-default);
             background-color: var(--color-canvas-default);
             margin: 0;
-            padding: 20px;
+            padding: 0;
         }
-        .markdown-body {
-            max-width: 980px;
+        .page-container {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 28px;
+            max-width: 1380px;
             margin: 0 auto;
-            padding: 32px;
+            padding: 24px 20px;
+            box-sizing: border-box;
+        }
+        /* Floating Index / TOC Sidebar */
+        .floating-toc {
+            position: sticky;
+            top: 24px;
+            width: 280px;
+            min-width: 240px;
+            max-height: calc(100vh - 48px);
+            overflow-y: auto;
+            padding: 18px 16px;
+            background-color: var(--color-canvas-subtle);
+            border: 1px solid var(--color-border-default);
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            font-size: 13px;
+            line-height: 1.45;
+            flex-shrink: 0;
+            box-sizing: border-box;
+        }
+        .toc-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 8px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid var(--color-border-muted);
+        }
+        .toc-title {
+            font-weight: 700;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--color-fg-muted);
+        }
+        .toc-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .toc-item {
+            margin: 3px 0;
+        }
+        .toc-item.toc-h1 {
+            font-weight: 700;
+            margin-top: 8px;
+        }
+        .toc-item.toc-h2 {
+            font-weight: 600;
+            padding-left: 6px;
+        }
+        .toc-item.toc-h3 {
+            font-weight: 400;
+            padding-left: 16px;
+            font-size: 12.5px;
+        }
+        .toc-item.toc-h4 {
+            font-weight: 400;
+            padding-left: 24px;
+            font-size: 12px;
+        }
+        .toc-item a {
+            color: var(--color-fg-muted);
+            text-decoration: none;
+            display: block;
+            padding: 4px 6px;
+            border-radius: 4px;
+            transition: all 0.15s ease-in-out;
+            word-break: break-word;
+        }
+        .toc-item a:hover {
+            color: var(--color-accent-fg);
+            background-color: var(--color-neutral-muted);
+        }
+        .toc-item a.active {
+            color: var(--color-accent-fg);
+            font-weight: 600;
+            background-color: var(--color-neutral-muted);
+            border-left: 3px solid var(--color-accent-fg);
+            padding-left: 6px;
+        }
+        .toc-footer {
+            margin-top: 14px;
+            padding-top: 10px;
+            border-top: 1px solid var(--color-border-muted);
+            font-size: 12px;
+        }
+        .back-to-top {
+            color: var(--color-fg-muted);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .back-to-top:hover {
+            color: var(--color-accent-fg);
+            text-decoration: underline;
+        }
+        /* Main Document Body */
+        .markdown-body {
+            flex: 1;
+            min-width: 0;
+            max-width: 960px;
+            padding: 36px 44px;
             border: 1px solid var(--color-border-default);
             border-radius: 8px;
             background-color: var(--color-canvas-default);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            box-sizing: border-box;
         }
         h1, h2, h3, h4, h5, h6 {
             margin-top: 24px;
@@ -61,6 +173,7 @@
             font-weight: 600;
             line-height: 1.25;
             color: var(--color-fg-default);
+            scroll-margin-top: 30px;
         }
         h1 {
             font-size: 2em;
@@ -162,10 +275,51 @@
             border-style: none;
             vertical-align: middle;
         }
+        /* Responsive Breakpoints */
+        @media (max-width: 1024px) {
+            .page-container {
+                flex-direction: column;
+                padding: 12px;
+            }
+            .floating-toc {
+                position: relative;
+                top: 0;
+                width: 100%;
+                max-height: none;
+                margin-bottom: 20px;
+            }
+            .markdown-body {
+                max-width: 100%;
+                padding: 24px 20px;
+            }
+        }
     </style>
 </head>
 <body>
-    <article class="markdown-body">
+    <div class="page-container" id="top">
+
+    <aside class="floating-toc" id="floating-toc" aria-label="Table of contents">
+        <div class="toc-header">
+            <span class="toc-title">Index</span>
+        </div>
+        <ul class="toc-list">
+            <li class="toc-item toc-h1"><a href="#scientific-project-data-tracking-template--guide">Scientific Project Data-Tracking Template &amp; Guide</a></li>
+            <li class="toc-item toc-h2"><a href="#workflow-summary">Workflow Summary</a></li>
+            <li class="toc-item toc-h2"><a href="#key-features">Key Features</a></li>
+            <li class="toc-item toc-h2"><a href="#directory-structure">Directory Structure</a></li>
+            <li class="toc-item toc-h2"><a href="#quickstart">Quickstart</a></li>
+            <li class="toc-item toc-h3"><a href="#1-bootstrap-project">1. Bootstrap Project</a></li>
+            <li class="toc-item toc-h3"><a href="#2-configure-local-storage-mount">2. Configure Local Storage Mount</a></li>
+            <li class="toc-item toc-h3"><a href="#3-add--lock-raw-datasets">3. Add &amp; Lock Raw Datasets</a></li>
+            <li class="toc-item toc-h3"><a href="#4-verify-integrity">4. Verify Integrity</a></li>
+            <li class="toc-item toc-h2"><a href="#documentation">Documentation</a></li>
+            <li class="toc-item toc-h2"><a href="#verification--testing">Verification &amp; Testing</a></li>
+        </ul>
+        <div class="toc-footer">
+            <a href="#top" class="back-to-top">↑ Back to Top</a>
+        </div>
+    </aside>
+        <article class="markdown-body">
 <h1 id="scientific-project-data-tracking-template--guide">Scientific Project Data-Tracking Template & Guide</h1>
 <p>A lightweight, reproducible data-tracking framework and template repository for genomics and computational science projects tracked in Git.<br /></p>
 <p><a href="tests/test_data_tracker.sh"><img src="https://img.shields.io/badge/tests-22%20passed-brightgreen.svg" alt="Tests" style="max-width: 100%; height: auto; vertical-align: middle;" /></a><br /> <a href="scripts/data_tracker.sh"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20HPC-blue.svg" alt="Platform" style="max-width: 100%; height: auto; vertical-align: middle;" /></a><br /> <a href="GUIDE.html"><img src="https://img.shields.io/badge/reproducibility-3%20Pillars-orange.svg" alt="Reproducibility" style="max-width: 100%; height: auto; vertical-align: middle;" /></a><br /></p>
@@ -244,6 +398,55 @@ DATA_ROOT=/mnt/scratch/bioinfo_core/raw_datasets</code></pre>
 <p>Run the automated test suite to verify compatibility on your system:<br /></p>
 <pre><code class="language-bash">./tests/test_data_tracker.sh</code></pre>
 <p>All 22 tests covering bootstrap, multi-line parsing, Stale Checksum Guard, hash mismatches, updates, relocations, deep hashing, hierarchical manifests, and pre-commit hook enforcement will execute in an isolated sandbox.<br /></p>
-    </article>
+        </article>
+    </div>
+
+    <!-- ScrollSpy Script to Highlight Active TOC Item -->
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const tocLinks = document.querySelectorAll('.floating-toc a[href^="#"]');
+        const sections = [];
+        
+        tocLinks.forEach(link => {
+            const id = link.getAttribute('href').slice(1);
+            if (id === 'top') return;
+            const target = document.getElementById(id);
+            if (target) {
+                sections.push({ id, target, link });
+            }
+        });
+
+        function updateActiveLink() {
+            const scrollPosition = window.scrollY + 100;
+            let activeSection = null;
+
+            for (let i = 0; i < sections.length; i++) {
+                const section = sections[i];
+                const top = section.target.getBoundingClientRect().top + window.scrollY;
+                if (top <= scrollPosition) {
+                    activeSection = section;
+                } else {
+                    break;
+                }
+            }
+
+            sections.forEach(s => s.link.classList.remove('active'));
+            if (activeSection) {
+                activeSection.link.classList.add('active');
+                const toc = document.getElementById('floating-toc');
+                if (toc && window.innerWidth > 1024) {
+                    const linkTop = activeSection.link.offsetTop;
+                    const tocHeight = toc.clientHeight;
+                    if (linkTop > toc.scrollTop + tocHeight - 50 || linkTop < toc.scrollTop + 50) {
+                        toc.scrollTop = linkTop - tocHeight / 2;
+                    }
+                }
+            }
+        }
+
+        window.addEventListener('scroll', updateActiveLink, { passive: true });
+        updateActiveLink();
+    });
+    </script>
 </body>
 </html>

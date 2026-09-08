@@ -9,6 +9,10 @@ data/external/
 # Large genomic binary & index formats
 *.bam
 *.bai
+*.sam
+.*bw
+*.bedgraph
+*.bedpe
 *.cram
 *.crai
 *.fastq.gz
@@ -16,10 +20,26 @@ data/external/
 *.vcf.gz
 *.tbi
 *.bed.gz
-*.h5ad
-*.rds
 *.tar.gz
 *.zip
+
+# R & Python serialized data binaries & matrices
+*.rds
+*.RData
+*.rda
+*.qs
+*.qs2
+*.pkl
+*.pickle
+*.joblib
+*.parquet
+*.feather
+*.arrow
+*.npy
+*.npz
+*.h5ad
+*.h5
+*.hdf5
 
 # ==============================================================================
 # 2. PIPELINE INTERMEDIATES & DERIVED ARTIFACTS
@@ -59,7 +79,16 @@ Thumbs.db
 *.swp
 *~
 *.Rhistory
-.RData
 .Rhistory
 __pycache__/
 *.pyc
+
+# ==============================================================================
+# 5. WHITELIST / EXCEPTIONS (Track Specific Excluded Files)
+#    To track a specific small binary or intermediate file in Git without
+#    forcing (`git add -f`), negate the ignore rule with a leading `!`.
+# ==============================================================================
+# Examples:
+# !results/gold_standard_reference.bam
+# !data/annotation_lookup_table.rds
+# !models/baseline_weights.pkl

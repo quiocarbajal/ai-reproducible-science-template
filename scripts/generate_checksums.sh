@@ -105,12 +105,14 @@ Options:
   -a, --algo <md5|sha256>    Hash algorithm (default: md5)
   -p, --pattern <glob>       File pattern to match (e.g., "*.bam", "*.fastq.gz")
   --include-all              Include all regular files (default skips hidden, .md5, .sha256, and .log files)
+  -v, --verbose              Verbose mode (print per-file hashing progress)
+  -q, --quiet, --non-verbose Non-verbose mode (default; suppress per-file hashing progress)
   -h, --help                 Show this help message
 
 Examples:
   $(basename "$0") /path/to/project_2026
   $(basename "$0") /path/to/project_2026 -o source_checksums.tsv -a sha256
-  $(basename "$0") /path/to/project_2026 -p "*.bam"
+  $(basename "$0") /path/to/project_2026 -p "*.bam" -v
 EOF
 }
 
@@ -122,23 +124,56 @@ OUTPUT_FILE=""
 ALGO="md5"
 PATTERN=""
 INCLUDE_ALL=0
+VERBOSE=0
+
+# No arguments provided -> show help
+if [[ $# -eq 0 ]]; then
+    usage
+    exit 0
+fi
 
 while [[ $# -gt 0 ]]; do
+    # An empty or whitespace-only argument (spaces, tabs) is interpreted as requesting help
+    if [[ -z "${1//[[:space:]]/}" ]]; then
+        usage
+        exit 0
+    fi
+
     case "$1" in
         -o|--output)
+            if [[ $# -lt 2 || -z "${2//[[:space:]]/}" ]]; then
+                usage
+                exit 0
+            fi
             OUTPUT_FILE="$2"
             shift 2
             ;;
         -a|--algo)
+            if [[ $# -lt 2 || -z "${2//[[:space:]]/}" ]]; then
+                usage
+                exit 0
+            fi
             ALGO="$2"
             shift 2
             ;;
         -p|--pattern)
+            if [[ $# -lt 2 || -z "${2//[[:space:]]/}" ]]; then
+                usage
+                exit 0
+            fi
             PATTERN="$2"
             shift 2
             ;;
         --include-all)
             INCLUDE_ALL=1
+            shift
+            ;;
+        -v|--verbose)
+            VERBOSE=1
+            shift
+            ;;
+        -q|--quiet|-s|--silent|--non-verbose|--no-verbose)
+            VERBOSE=0
             shift
             ;;
         -h|--help)
@@ -177,7 +212,12 @@ TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
 
 # Default output file
 if [[ -z "$OUTPUT_FILE" ]]; then
-    OUTPUT_FILE="${TARGET_DIR}/checksums.tsv"
+    if [[ -w "$TARGET_DIR" ]]; then
+        OUTPUT_FILE="${TARGET_DIR}/checksums.tsv"
+    else
+        log_warn "Target directory is not writable. Defaulting output manifest to current directory: $(pwd)/checksums.tsv"
+        OUTPUT_FILE="$(pwd)/checksums.tsv"
+    fi
 else
     # If not absolute, put it relative to current working directory
     if [[ "$OUTPUT_FILE" != /* ]]; then
@@ -195,10 +235,15 @@ printf "${BOLD}Generating Upstream Checksum Manifest (${ALGO_UPPER})${NC}\n"
 printf "Target directory: %s\n" "$TARGET_DIR"
 printf "Output manifest:  %s\n" "$OUTPUT_FILE"
 [[ -n "$PATTERN" ]] && printf "Filter pattern:   %s\n" "$PATTERN"
-printf "${BOLD}============================================================${NC}\n\n"
+if [[ $VERBOSE -eq 1 ]]; then
+    printf "${BOLD}============================================================${NC}\n\n"
+else
+    printf "${BOLD}============================================================${NC}\n"
+fi
 
-# Temporary file to build manifest
-TMP_OUT="$(mktemp "${TARGET_DIR}/checksums.tmp.XXXXXX")"
+# Temporary file to build manifest in system temp directory (avoids read-only and cloud sync/Dropbox notifications)
+TMP_OUT="$(mktemp "${TMPDIR:-/tmp}/.checksums.tmp.XXXXXX" 2>/dev/null || mktemp -t .checksums.tmp.XXXXXX)"
+trap 'rm -f "$TMP_OUT"' EXIT INT TERM
 printf "relative_path\thash\tsize_bytes\tmodified_date\n" > "$TMP_OUT"
 
 TOTAL_FILES=0
@@ -235,9 +280,9 @@ while IFS= read -r filepath; do
     file_mtime=$(get_mtime "$filepath")
     file_date=$(format_date "$file_mtime")
 
-    printf "  Hashing: %s ... " "$rel_path"
+    [[ $VERBOSE -eq 1 ]] && printf "  Hashing: %s ... " "$rel_path"
     file_hash=$(compute_hash "$filepath" "$ALGO")
-    printf "%s\n" "$file_hash"
+    [[ $VERBOSE -eq 1 ]] && printf "%s\n" "$file_hash"
 
     printf "%s\t%s\t%s\t%s\n" "$rel_path" "$file_hash" "$file_size" "$file_date" >> "$TMP_OUT"
 
@@ -252,8 +297,9 @@ done < <(
     fi
 )
 
-# Move tmp file to final output
-mv "$TMP_OUT" "$OUTPUT_FILE"
+# Write to final output manifest in-place (preserves inode & avoids Dropbox/sync move alerts)
+cat "$TMP_OUT" > "$OUTPUT_FILE"
+rm -f "$TMP_OUT"
 
 # Ensure output file mtime is newer than or equal to current time (satisfies Stale Guard)
 touch "$OUTPUT_FILE"

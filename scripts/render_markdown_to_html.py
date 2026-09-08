@@ -4,7 +4,10 @@ render_markdown_to_html.py
 
 Processes Markdown files:
 1. Adds trailing double spaces to lines that break within paragraphs/lists so they render properly.
-2. Converts Markdown to standalone, publication-quality HTML files with GitHub-style CSS and MathJax support.
+2. Converts Markdown to standalone, publication-quality HTML files with:
+   - GitHub-style CSS and dark/light mode support
+   - MathJax support for LaTeX math formulas
+   - Responsive floating Table of Contents / Index (sticky sidebar with ScrollSpy active section highlight)
 """
 
 import os
@@ -104,10 +107,12 @@ def parse_inline_elements(text):
 
 def convert_markdown_to_html(md_content, title="Documentation"):
     """
-    Converts full markdown document to HTML with GitHub styling.
+    Converts full markdown document to HTML with GitHub styling and a floating Table of Contents.
     """
     lines = md_content.split('\n')
     html_out = []
+    headings = []
+    seen_ids = set()
     
     i = 0
     n = len(lines)
@@ -199,7 +204,26 @@ def convert_markdown_to_html(md_content, title="Documentation"):
                 
             level = len(heading_match.group(1))
             heading_text = heading_match.group(2)
-            anchor_id = re.sub(r'[^a-zA-Z0-9\-_]', '', heading_text.lower().replace(' ', '-'))
+            
+            # Clean anchor id
+            clean_text = re.sub(r'[*_`]', '', heading_text).strip()
+            anchor_id = re.sub(r'[^a-zA-Z0-9\-_]', '', clean_text.lower().replace(' ', '-'))
+            if not anchor_id:
+                anchor_id = f"section-{len(headings) + 1}"
+            base_id = anchor_id
+            counter = 1
+            while anchor_id in seen_ids:
+                anchor_id = f"{base_id}-{counter}"
+                counter += 1
+            seen_ids.add(anchor_id)
+            
+            if level in (1, 2, 3, 4):
+                headings.append({
+                    'level': level,
+                    'title': clean_text,
+                    'id': anchor_id
+                })
+                
             html_out.append(f'<h{level} id="{anchor_id}">{parse_inline_elements(heading_text)}</h{level}>')
             i += 1
             continue
@@ -326,7 +350,30 @@ def convert_markdown_to_html(md_content, title="Documentation"):
         
     body_content = '\n'.join(html_out)
     
-    # Full HTML Template with GitHub styling and MathJax
+    # Build Floating Table of Contents / Index
+    toc_items = []
+    for h in headings:
+        # Indent and style based on level
+        item_class = f"toc-item toc-h{h['level']}"
+        title_escaped = html.escape(h['title'])
+        toc_items.append(f'<li class="{item_class}"><a href="#{h["id"]}">{title_escaped}</a></li>')
+        
+    toc_html = ""
+    if toc_items:
+        toc_html = f"""
+    <aside class="floating-toc" id="floating-toc" aria-label="Table of contents">
+        <div class="toc-header">
+            <span class="toc-title">Index</span>
+        </div>
+        <ul class="toc-list">
+            {'\n            '.join(toc_items)}
+        </ul>
+        <div class="toc-footer">
+            <a href="#top" class="back-to-top">↑ Back to Top</a>
+        </div>
+    </aside>"""
+
+    # Full HTML Template with GitHub styling, responsive floating TOC, and MathJax
     full_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -366,6 +413,9 @@ def convert_markdown_to_html(md_content, title="Documentation"):
                 --color-neutral-muted: rgba(110, 118, 129, 0.4);
             }}
         }}
+        html {{
+            scroll-behavior: smooth;
+        }}
         body {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
             font-size: 16px;
@@ -373,16 +423,125 @@ def convert_markdown_to_html(md_content, title="Documentation"):
             color: var(--color-fg-default);
             background-color: var(--color-canvas-default);
             margin: 0;
-            padding: 20px;
+            padding: 0;
         }}
-        .markdown-body {{
-            max-width: 980px;
+        .page-container {{
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 28px;
+            max-width: 1380px;
             margin: 0 auto;
-            padding: 32px;
+            padding: 24px 20px;
+            box-sizing: border-box;
+        }}
+        /* Floating Index / TOC Sidebar */
+        .floating-toc {{
+            position: sticky;
+            top: 24px;
+            width: 280px;
+            min-width: 240px;
+            max-height: calc(100vh - 48px);
+            overflow-y: auto;
+            padding: 18px 16px;
+            background-color: var(--color-canvas-subtle);
+            border: 1px solid var(--color-border-default);
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            font-size: 13px;
+            line-height: 1.45;
+            flex-shrink: 0;
+            box-sizing: border-box;
+        }}
+        .toc-header {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 8px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid var(--color-border-muted);
+        }}
+        .toc-title {{
+            font-weight: 700;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--color-fg-muted);
+        }}
+        .toc-list {{
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }}
+        .toc-item {{
+            margin: 3px 0;
+        }}
+        .toc-item.toc-h1 {{
+            font-weight: 700;
+            margin-top: 8px;
+        }}
+        .toc-item.toc-h2 {{
+            font-weight: 600;
+            padding-left: 6px;
+        }}
+        .toc-item.toc-h3 {{
+            font-weight: 400;
+            padding-left: 16px;
+            font-size: 12.5px;
+        }}
+        .toc-item.toc-h4 {{
+            font-weight: 400;
+            padding-left: 24px;
+            font-size: 12px;
+        }}
+        .toc-item a {{
+            color: var(--color-fg-muted);
+            text-decoration: none;
+            display: block;
+            padding: 4px 6px;
+            border-radius: 4px;
+            transition: all 0.15s ease-in-out;
+            word-break: break-word;
+        }}
+        .toc-item a:hover {{
+            color: var(--color-accent-fg);
+            background-color: var(--color-neutral-muted);
+        }}
+        .toc-item a.active {{
+            color: var(--color-accent-fg);
+            font-weight: 600;
+            background-color: var(--color-neutral-muted);
+            border-left: 3px solid var(--color-accent-fg);
+            padding-left: 6px;
+        }}
+        .toc-footer {{
+            margin-top: 14px;
+            padding-top: 10px;
+            border-top: 1px solid var(--color-border-muted);
+            font-size: 12px;
+        }}
+        .back-to-top {{
+            color: var(--color-fg-muted);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }}
+        .back-to-top:hover {{
+            color: var(--color-accent-fg);
+            text-decoration: underline;
+        }}
+        /* Main Document Body */
+        .markdown-body {{
+            flex: 1;
+            min-width: 0;
+            max-width: 960px;
+            padding: 36px 44px;
             border: 1px solid var(--color-border-default);
             border-radius: 8px;
             background-color: var(--color-canvas-default);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            box-sizing: border-box;
         }}
         h1, h2, h3, h4, h5, h6 {{
             margin-top: 24px;
@@ -390,6 +549,7 @@ def convert_markdown_to_html(md_content, title="Documentation"):
             font-weight: 600;
             line-height: 1.25;
             color: var(--color-fg-default);
+            scroll-margin-top: 30px;
         }}
         h1 {{
             font-size: 2em;
@@ -491,12 +651,81 @@ def convert_markdown_to_html(md_content, title="Documentation"):
             border-style: none;
             vertical-align: middle;
         }}
+        /* Responsive Breakpoints */
+        @media (max-width: 1024px) {{
+            .page-container {{
+                flex-direction: column;
+                padding: 12px;
+            }}
+            .floating-toc {{
+                position: relative;
+                top: 0;
+                width: 100%;
+                max-height: none;
+                margin-bottom: 20px;
+            }}
+            .markdown-body {{
+                max-width: 100%;
+                padding: 24px 20px;
+            }}
+        }}
     </style>
 </head>
 <body>
-    <article class="markdown-body">
+    <div class="page-container" id="top">
+{toc_html}
+        <article class="markdown-body">
 {body_content}
-    </article>
+        </article>
+    </div>
+
+    <!-- ScrollSpy Script to Highlight Active TOC Item -->
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {{
+        const tocLinks = document.querySelectorAll('.floating-toc a[href^="#"]');
+        const sections = [];
+        
+        tocLinks.forEach(link => {{
+            const id = link.getAttribute('href').slice(1);
+            if (id === 'top') return;
+            const target = document.getElementById(id);
+            if (target) {{
+                sections.push({{ id, target, link }});
+            }}
+        }});
+
+        function updateActiveLink() {{
+            const scrollPosition = window.scrollY + 100;
+            let activeSection = null;
+
+            for (let i = 0; i < sections.length; i++) {{
+                const section = sections[i];
+                const top = section.target.getBoundingClientRect().top + window.scrollY;
+                if (top <= scrollPosition) {{
+                    activeSection = section;
+                }} else {{
+                    break;
+                }}
+            }}
+
+            sections.forEach(s => s.link.classList.remove('active'));
+            if (activeSection) {{
+                activeSection.link.classList.add('active');
+                const toc = document.getElementById('floating-toc');
+                if (toc && window.innerWidth > 1024) {{
+                    const linkTop = activeSection.link.offsetTop;
+                    const tocHeight = toc.clientHeight;
+                    if (linkTop > toc.scrollTop + tocHeight - 50 || linkTop < toc.scrollTop + 50) {{
+                        toc.scrollTop = linkTop - tocHeight / 2;
+                    }}
+                }}
+            }}
+        }}
+
+        window.addEventListener('scroll', updateActiveLink, {{ passive: true }});
+        updateActiveLink();
+    }});
+    </script>
 </body>
 </html>
 """
@@ -504,13 +733,15 @@ def convert_markdown_to_html(md_content, title="Documentation"):
 
 
 if __name__ == "__main__":
-    for name in ["README", "GUIDE"]:
-        md_path = f"{name}.md"
-        html_path = f"{name}.html"
+    target_names = sys.argv[1:] if len(sys.argv) > 1 else ["README", "GUIDE", "GEMINI", "strategy_prompt"]
+    for name in target_names:
+        base = name.replace(".md", "").replace(".html", "")
+        md_path = f"{base}.md"
+        html_path = f"{base}.html"
         if os.path.exists(md_path):
             with open(md_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            html_out = convert_markdown_to_html(content, title=name)
+            html_out = convert_markdown_to_html(content, title=f"{base} - Scientific Data Tracking")
             with open(html_path, "w", encoding="utf-8") as f:
                 f.write(html_out)
-            print(f"Generated {html_path}")
+            print(f"Generated {html_path} with floating index")

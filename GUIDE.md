@@ -304,3 +304,52 @@ If you prefer managing symlinks in R (modernizing `00_Symlinks.Rmd`), open and c
 | `./scripts/data_tracker.sh link` | Provision / repair all symlinks in `raw_data/` |
 | `./scripts/data_tracker.sh status` | Display pointer table & symlink health |
 | `./tests/test_data_tracker.sh` | Run automated test suite (22 test assertions) |
+
+---
+
+## 9. Managing Directory Permissions (Read-Only vs. Read-Write)
+
+Locking raw dataset directories as **read-only** prevents accidental file deletion, in-place modification by downstream pipelines, or inadvertent edits, establishing an immutable data boundary.
+
+### Setting Directories and Files as Read-Only
+
+Directories must retain the execute (`x`) permission so they remain traversable and listable, while write (`w`) permissions are stripped:
+
+#### Quick Method (Remove Write Permissions Recursively)
+```bash
+chmod -R a-w /path/to/external_data
+```
+*Removes write access for all users while preserving existing read and directory traversal permissions.*
+
+#### Granular Method (Explicit File vs. Directory Permissions)
+```bash
+# Set all directories to readable and traversable (555 / r-xr-xr-x)
+find /path/to/external_data -type d -exec chmod 555 {} +
+
+# Set all files to read-only (444 / r--r--r--)
+find /path/to/external_data -type f -exec chmod 444 {} +
+```
+
+### Restoring Read-Write Access
+
+When you need to add new datasets, organize subfolders, or generate manifests inside the storage directory:
+
+#### Quick Method (Restore Owner Write Access)
+```bash
+chmod -R u+w /path/to/external_data
+```
+
+#### Granular Method (Standard Read-Write Ownership)
+```bash
+# Directories: owner full access, group/others readable and traversable (755 / rwxr-xr-x)
+find /path/to/external_data -type d -exec chmod 755 {} +
+
+# Files: owner read-write, group/others read-only (644 / rw-r--r--)
+find /path/to/external_data -type f -exec chmod 644 {} +
+```
+
+### Why This Is Safe With the Data Tracker
+- **No Impact on Hashes:** Cryptographic checksums (MD5, SHA-256) evaluate only the byte payload of the files. Changing permission bits does not alter hashes.
+- **No Impact on Stale Guard:** Running `chmod` updates inode change time (`ctime`), but leaves data modification time (`mtime`) untouched. The Tier 1 Fast Handshake (`mtime(data) > mtime(checksum)`) will continue to pass.
+- **Read-Only Manifest Generation:** `./scripts/generate_checksums.sh` automatically stages temporary files in system `$TMPDIR` (`/tmp`) and defaults output to the current working directory if the target directory is read-only, avoiding permission errors.
+

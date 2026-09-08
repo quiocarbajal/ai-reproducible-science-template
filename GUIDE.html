@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GUIDE</title>
+    <title>GUIDE - Scientific Data Tracking</title>
     <!-- MathJax for LaTeX Math Formulas -->
     <script>
     MathJax = {
@@ -37,6 +37,9 @@
                 --color-neutral-muted: rgba(110, 118, 129, 0.4);
             }
         }
+        html {
+            scroll-behavior: smooth;
+        }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
             font-size: 16px;
@@ -44,16 +47,125 @@
             color: var(--color-fg-default);
             background-color: var(--color-canvas-default);
             margin: 0;
-            padding: 20px;
+            padding: 0;
         }
-        .markdown-body {
-            max-width: 980px;
+        .page-container {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 28px;
+            max-width: 1380px;
             margin: 0 auto;
-            padding: 32px;
+            padding: 24px 20px;
+            box-sizing: border-box;
+        }
+        /* Floating Index / TOC Sidebar */
+        .floating-toc {
+            position: sticky;
+            top: 24px;
+            width: 280px;
+            min-width: 240px;
+            max-height: calc(100vh - 48px);
+            overflow-y: auto;
+            padding: 18px 16px;
+            background-color: var(--color-canvas-subtle);
+            border: 1px solid var(--color-border-default);
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            font-size: 13px;
+            line-height: 1.45;
+            flex-shrink: 0;
+            box-sizing: border-box;
+        }
+        .toc-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 8px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid var(--color-border-muted);
+        }
+        .toc-title {
+            font-weight: 700;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--color-fg-muted);
+        }
+        .toc-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .toc-item {
+            margin: 3px 0;
+        }
+        .toc-item.toc-h1 {
+            font-weight: 700;
+            margin-top: 8px;
+        }
+        .toc-item.toc-h2 {
+            font-weight: 600;
+            padding-left: 6px;
+        }
+        .toc-item.toc-h3 {
+            font-weight: 400;
+            padding-left: 16px;
+            font-size: 12.5px;
+        }
+        .toc-item.toc-h4 {
+            font-weight: 400;
+            padding-left: 24px;
+            font-size: 12px;
+        }
+        .toc-item a {
+            color: var(--color-fg-muted);
+            text-decoration: none;
+            display: block;
+            padding: 4px 6px;
+            border-radius: 4px;
+            transition: all 0.15s ease-in-out;
+            word-break: break-word;
+        }
+        .toc-item a:hover {
+            color: var(--color-accent-fg);
+            background-color: var(--color-neutral-muted);
+        }
+        .toc-item a.active {
+            color: var(--color-accent-fg);
+            font-weight: 600;
+            background-color: var(--color-neutral-muted);
+            border-left: 3px solid var(--color-accent-fg);
+            padding-left: 6px;
+        }
+        .toc-footer {
+            margin-top: 14px;
+            padding-top: 10px;
+            border-top: 1px solid var(--color-border-muted);
+            font-size: 12px;
+        }
+        .back-to-top {
+            color: var(--color-fg-muted);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .back-to-top:hover {
+            color: var(--color-accent-fg);
+            text-decoration: underline;
+        }
+        /* Main Document Body */
+        .markdown-body {
+            flex: 1;
+            min-width: 0;
+            max-width: 960px;
+            padding: 36px 44px;
             border: 1px solid var(--color-border-default);
             border-radius: 8px;
             background-color: var(--color-canvas-default);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            box-sizing: border-box;
         }
         h1, h2, h3, h4, h5, h6 {
             margin-top: 24px;
@@ -61,6 +173,7 @@
             font-weight: 600;
             line-height: 1.25;
             color: var(--color-fg-default);
+            scroll-margin-top: 30px;
         }
         h1 {
             font-size: 2em;
@@ -162,10 +275,77 @@
             border-style: none;
             vertical-align: middle;
         }
+        /* Responsive Breakpoints */
+        @media (max-width: 1024px) {
+            .page-container {
+                flex-direction: column;
+                padding: 12px;
+            }
+            .floating-toc {
+                position: relative;
+                top: 0;
+                width: 100%;
+                max-height: none;
+                margin-bottom: 20px;
+            }
+            .markdown-body {
+                max-width: 100%;
+                padding: 24px 20px;
+            }
+        }
     </style>
 </head>
 <body>
-    <article class="markdown-body">
+    <div class="page-container" id="top">
+
+    <aside class="floating-toc" id="floating-toc" aria-label="Table of contents">
+        <div class="toc-header">
+            <span class="toc-title">Index</span>
+        </div>
+        <ul class="toc-list">
+            <li class="toc-item toc-h1"><a href="#scientific-project-data-tracking-template--adoption-guide">Scientific Project Data-Tracking: Template &amp; Adoption Guide</a></li>
+            <li class="toc-item toc-h2"><a href="#workflow-summary">Workflow Summary</a></li>
+            <li class="toc-item toc-h2"><a href="#1-the-core-philosophy-the-three-reproducibility-pillars">1. The Core Philosophy: The Three Reproducibility Pillars</a></li>
+            <li class="toc-item toc-h3"><a href="#biological-reproducibility-vs-monolithic-lockfile-overkill">Biological Reproducibility vs. Monolithic Lockfile Overkill</a></li>
+            <li class="toc-item toc-h2"><a href="#2-pillar-3-in-script--in-document-version-provenance">2. Pillar 3: In-Script &amp; In-Document Version Provenance</a></li>
+            <li class="toc-item toc-h3"><a href="#a-r--quarto-notebooks-qmd">A. R &amp; Quarto Notebooks (.qmd)</a></li>
+            <li class="toc-item toc-h3"><a href="#b-python-quarto-notebooks-qmd">B. Python Quarto Notebooks (.qmd)</a></li>
+            <li class="toc-item toc-h3"><a href="#c-python-analysis-scripts-py">C. Python Analysis Scripts (.py)</a></li>
+            <li class="toc-item toc-h3"><a href="#d-standalone-cli-tools-in-bash-pipelines-sh">D. Standalone CLI Tools in Bash Pipelines (.sh)</a></li>
+            <li class="toc-item toc-h2"><a href="#3-why-not-git-lfs-git-annex-or-dvc">3. Why Not Git LFS, git-annex, or DVC?</a></li>
+            <li class="toc-item toc-h2"><a href="#4-the-two-tier-verification-handshake">4. The Two-Tier Verification Handshake</a></li>
+            <li class="toc-item toc-h3"><a href="#tier-1-fast-handshake--stale-guard-gate-sub-second">Tier 1: Fast Handshake &amp; Stale-Guard Gate (Sub-Second)</a></li>
+            <li class="toc-item toc-h3"><a href="#tier-2-deep-cryptographic-verification-on-demand">Tier 2: Deep Cryptographic Verification (On Demand)</a></li>
+            <li class="toc-item toc-h2"><a href="#5-quickstart-using-as-a-starter-template-for-new-projects">5. Quickstart: Using as a Starter Template for New Projects</a></li>
+            <li class="toc-item toc-h3"><a href="#step-1-initialize-your-project">Step 1: Initialize Your Project</a></li>
+            <li class="toc-item toc-h3"><a href="#step-2-configure-dataroot">Step 2: Configure $DATAROOT</a></li>
+            <li class="toc-item toc-h3"><a href="#step-3-add-your-first-raw-data-file">Step 3: Add Your First Raw Data File</a></li>
+            <li class="toc-item toc-h3"><a href="#step-4-commit-your-pointer">Step 4: Commit Your Pointer</a></li>
+            <li class="toc-item toc-h2"><a href="#6-adopting-in-an-existing-project">6. Adopting in an Existing Project</a></li>
+            <li class="toc-item toc-h2"><a href="#7-daily-operator-cookbook">7. Daily Operator Cookbook</a></li>
+            <li class="toc-item toc-h3"><a href="#recipe-1-check-system-status--symlink-health">Recipe 1: Check System Status &amp; Symlink Health</a></li>
+            <li class="toc-item toc-h3"><a href="#recipe-2-provisioning-symlinks-on-a-fresh-clone--machine">Recipe 2: Provisioning Symlinks on a Fresh Clone / Machine</a></li>
+            <li class="toc-item toc-h3"><a href="#recipe-3-upstream-data-changed-legitimate-re-sequencing-or-re-calling">Recipe 3: Upstream Data Changed (Legitimate Re-sequencing or Re-calling)</a></li>
+            <li class="toc-item toc-h3"><a href="#recipe-4-server--storage-reorganization">Recipe 4: Server / Storage Reorganization</a></li>
+            <li class="toc-item toc-h3"><a href="#recipe-5-deep-verification-prior-to-pipeline-execution-or-publication">Recipe 5: Deep Verification Prior to Pipeline Execution or Publication</a></li>
+            <li class="toc-item toc-h3"><a href="#recipe-6-generating-upstream-checksums-on-external-storage-mac--linux">Recipe 6: Generating Upstream Checksums on External Storage (Mac &amp; Linux)</a></li>
+            <li class="toc-item toc-h3"><a href="#recipe-7-batch-registering-cohorts">Recipe 7: Batch Registering Cohorts</a></li>
+            <li class="toc-item toc-h3"><a href="#recipe-8-interactive-r--quarto-ingestion">Recipe 8: Interactive R / Quarto Ingestion</a></li>
+            <li class="toc-item toc-h2"><a href="#8-summary-of-commands">8. Summary of Commands</a></li>
+            <li class="toc-item toc-h2"><a href="#9-managing-directory-permissions-read-only-vs-read-write">9. Managing Directory Permissions (Read-Only vs. Read-Write)</a></li>
+            <li class="toc-item toc-h3"><a href="#setting-directories-and-files-as-read-only">Setting Directories and Files as Read-Only</a></li>
+            <li class="toc-item toc-h4"><a href="#quick-method-remove-write-permissions-recursively">Quick Method (Remove Write Permissions Recursively)</a></li>
+            <li class="toc-item toc-h4"><a href="#granular-method-explicit-file-vs-directory-permissions">Granular Method (Explicit File vs. Directory Permissions)</a></li>
+            <li class="toc-item toc-h3"><a href="#restoring-read-write-access">Restoring Read-Write Access</a></li>
+            <li class="toc-item toc-h4"><a href="#quick-method-restore-owner-write-access">Quick Method (Restore Owner Write Access)</a></li>
+            <li class="toc-item toc-h4"><a href="#granular-method-standard-read-write-ownership">Granular Method (Standard Read-Write Ownership)</a></li>
+            <li class="toc-item toc-h3"><a href="#why-this-is-safe-with-the-data-tracker">Why This Is Safe With the Data Tracker</a></li>
+        </ul>
+        <div class="toc-footer">
+            <a href="#top" class="back-to-top">↑ Back to Top</a>
+        </div>
+    </aside>
+        <article class="markdown-body">
 <h1 id="scientific-project-data-tracking-template--adoption-guide">Scientific Project Data-Tracking: Template & Adoption Guide</h1>
 <p>A lightweight, reproducible data-tracking and verification framework for genomics and scientific projects tracked in Git.<br /></p>
 <hr />
@@ -315,7 +495,7 @@ cd my_genomics_project
 <li>Generates <code>.env</code> from <code>.env.example</code> if not present.</li>
 <li>Configures the Git pre-commit hook (<code>git config core.hooksPath .githooks</code>).</li>
 </ul>
-<h3 id="step-2-configure-data_root">Step 2: Configure <code>$DATA_ROOT</code></h3>
+<h3 id="step-2-configure-dataroot">Step 2: Configure <code>$DATA_ROOT</code></h3>
 <p>Edit your local <code>.env</code> file (which is gitignored):<br /></p>
 <pre><code class="language-bash"># On macOS:
 DATA_ROOT=/Volumes/LabStorage/raw_datasets
@@ -470,6 +650,85 @@ git commit -m &quot;refactor: update raw data paths following storage reorganiza
 </tr>
 </tbody>
 </table>
-    </article>
+<hr />
+<h2 id="9-managing-directory-permissions-read-only-vs-read-write">9. Managing Directory Permissions (Read-Only vs. Read-Write)</h2>
+<p>Locking raw dataset directories as <strong>read-only</strong> prevents accidental file deletion, in-place modification by downstream pipelines, or inadvertent edits, establishing an immutable data boundary.</p>
+<h3 id="setting-directories-and-files-as-read-only">Setting Directories and Files as Read-Only</h3>
+<p>Directories must retain the execute (<code>x</code>) permission so they remain traversable and listable, while write (<code>w</code>) permissions are stripped:</p>
+<h4 id="quick-method-remove-write-permissions-recursively">Quick Method (Remove Write Permissions Recursively)</h4>
+<pre><code class="language-bash">chmod -R a-w /path/to/external_data</code></pre>
+<p><em>Removes write access for all users while preserving existing read and directory traversal permissions.</em></p>
+<h4 id="granular-method-explicit-file-vs-directory-permissions">Granular Method (Explicit File vs. Directory Permissions)</h4>
+<pre><code class="language-bash"># Set all directories to readable and traversable (555 / r-xr-xr-x)
+find /path/to/external_data -type d -exec chmod 555 {} +
+
+# Set all files to read-only (444 / r--r--r--)
+find /path/to/external_data -type f -exec chmod 444 {} +</code></pre>
+<h3 id="restoring-read-write-access">Restoring Read-Write Access</h3>
+<p>When you need to add new datasets, organize subfolders, or generate manifests inside the storage directory:</p>
+<h4 id="quick-method-restore-owner-write-access">Quick Method (Restore Owner Write Access)</h4>
+<pre><code class="language-bash">chmod -R u+w /path/to/external_data</code></pre>
+<h4 id="granular-method-standard-read-write-ownership">Granular Method (Standard Read-Write Ownership)</h4>
+<pre><code class="language-bash"># Directories: owner full access, group/others readable and traversable (755 / rwxr-xr-x)
+find /path/to/external_data -type d -exec chmod 755 {} +
+
+# Files: owner read-write, group/others read-only (644 / rw-r--r--)
+find /path/to/external_data -type f -exec chmod 644 {} +</code></pre>
+<h3 id="why-this-is-safe-with-the-data-tracker">Why This Is Safe With the Data Tracker</h3>
+<ul>
+<li><strong>No Impact on Hashes:</strong> Cryptographic checksums (MD5, SHA-256) evaluate only the byte payload of the files. Changing permission bits does not alter hashes.</li>
+<li><strong>No Impact on Stale Guard:</strong> Running <code>chmod</code> updates inode change time (<code>ctime</code>), but leaves data modification time (<code>mtime</code>) untouched. The Tier 1 Fast Handshake (<code>mtime(data) &gt; mtime(checksum)</code>) will continue to pass.</li>
+<li><strong>Read-Only Manifest Generation:</strong> <code>./scripts/generate_checksums.sh</code> automatically stages temporary files in system <code>$TMPDIR</code> (<code>/tmp</code>) and defaults output to the current working directory if the target directory is read-only, avoiding permission errors.</li>
+</ul>
+        </article>
+    </div>
+
+    <!-- ScrollSpy Script to Highlight Active TOC Item -->
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const tocLinks = document.querySelectorAll('.floating-toc a[href^="#"]');
+        const sections = [];
+        
+        tocLinks.forEach(link => {
+            const id = link.getAttribute('href').slice(1);
+            if (id === 'top') return;
+            const target = document.getElementById(id);
+            if (target) {
+                sections.push({ id, target, link });
+            }
+        });
+
+        function updateActiveLink() {
+            const scrollPosition = window.scrollY + 100;
+            let activeSection = null;
+
+            for (let i = 0; i < sections.length; i++) {
+                const section = sections[i];
+                const top = section.target.getBoundingClientRect().top + window.scrollY;
+                if (top <= scrollPosition) {
+                    activeSection = section;
+                } else {
+                    break;
+                }
+            }
+
+            sections.forEach(s => s.link.classList.remove('active'));
+            if (activeSection) {
+                activeSection.link.classList.add('active');
+                const toc = document.getElementById('floating-toc');
+                if (toc && window.innerWidth > 1024) {
+                    const linkTop = activeSection.link.offsetTop;
+                    const tocHeight = toc.clientHeight;
+                    if (linkTop > toc.scrollTop + tocHeight - 50 || linkTop < toc.scrollTop + 50) {
+                        toc.scrollTop = linkTop - tocHeight / 2;
+                    }
+                }
+            }
+        }
+
+        window.addEventListener('scroll', updateActiveLink, { passive: true });
+        updateActiveLink();
+    });
+    </script>
 </body>
 </html>
