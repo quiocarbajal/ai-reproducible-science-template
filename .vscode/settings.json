@@ -1,0 +1,27 @@
+{
+  "files.exclude": {
+    "**/.git": true,
+    "**/.DS_Store": true,
+    "**/raw_data": false,
+    "**/work": true,
+    "**/.nextflow": true,
+    "**/.snakemake": true,
+    "**/.test_tmp": true
+  },
+  "search.exclude": {
+    "**/raw_data/**": true,
+    "**/work/**": true,
+    "**/.nextflow/**": true,
+    "**/.snakemake/**": true,
+    "**/.test_tmp/**": true,
+    "**/*.bam": true,
+    "**/*.cram": true,
+    "**/*.fastq.gz": true
+  },
+  "files.watcherExclude": {
+    "**/raw_data/**": true,
+    "**/work/**": true,
+    "**/.nextflow/**": true,
+    "**/.snakemake/**": true
+  }
+}

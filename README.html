@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>README</title>
+    <!-- MathJax for LaTeX Math Formulas -->
+    <script>
+    MathJax = {
+      tex: {
+        inlineMath: [['$', '$']],
+        displayMath: [['$$', '$$']]
+      }
+    };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        :root {
+            --color-canvas-default: #ffffff;
+            --color-canvas-subtle: #f6f8fa;
+            --color-border-default: #d0d7de;
+            --color-border-muted: #d8dee4;
+            --color-fg-default: #1f2328;
+            --color-fg-muted: #656d76;
+            --color-accent-fg: #0969da;
+            --color-neutral-muted: rgba(175, 184, 193, 0.2);
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --color-canvas-default: #0d1117;
+                --color-canvas-subtle: #161b22;
+                --color-border-default: #30363d;
+                --color-border-muted: #21262d;
+                --color-fg-default: #e6edf3;
+                --color-fg-muted: #848d97;
+                --color-accent-fg: #4493f8;
+                --color-neutral-muted: rgba(110, 118, 129, 0.4);
+            }
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+            font-size: 16px;
+            line-height: 1.6;
+            color: var(--color-fg-default);
+            background-color: var(--color-canvas-default);
+            margin: 0;
+            padding: 20px;
+        }
+        .markdown-body {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 32px;
+            border: 1px solid var(--color-border-default);
+            border-radius: 8px;
+            background-color: var(--color-canvas-default);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+        h1, h2, h3, h4, h5, h6 {
+            margin-top: 24px;
+            margin-bottom: 16px;
+            font-weight: 600;
+            line-height: 1.25;
+            color: var(--color-fg-default);
+        }
+        h1 {
+            font-size: 2em;
+            padding-bottom: 0.3em;
+            border-bottom: 1px solid var(--color-border-muted);
+        }
+        h2 {
+            font-size: 1.5em;
+            padding-bottom: 0.3em;
+            border-bottom: 1px solid var(--color-border-muted);
+        }
+        h3 { font-size: 1.25em; }
+        h4 { font-size: 1em; }
+        p, blockquote, ul, ol, dl, table, pre, details {
+            margin-top: 0;
+            margin-bottom: 16px;
+        }
+        a {
+            color: var(--color-accent-fg);
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        hr {
+            height: 0.25em;
+            padding: 0;
+            margin: 24px 0;
+            background-color: var(--color-border-default);
+            border: 0;
+        }
+        blockquote {
+            padding: 0 1em;
+            color: var(--color-fg-muted);
+            border-left: 0.25em solid var(--color-border-default);
+        }
+        ul, ol {
+            padding-left: 2em;
+        }
+        li + li {
+            margin-top: 0.25em;
+        }
+        code {
+            padding: 0.2em 0.4em;
+            margin: 0;
+            font-size: 85%;
+            white-space: break-spaces;
+            background-color: var(--color-neutral-muted);
+            border-radius: 6px;
+            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+        }
+        pre {
+            padding: 16px;
+            overflow: auto;
+            font-size: 85%;
+            line-height: 1.45;
+            background-color: var(--color-canvas-subtle);
+            border-radius: 6px;
+            border: 1px solid var(--color-border-muted);
+        }
+        pre code {
+            display: inline;
+            padding: 0;
+            margin: 0;
+            overflow: visible;
+            line-height: inherit;
+            word-wrap: normal;
+            background-color: transparent;
+            border: 0;
+            font-size: 100%;
+            white-space: pre;
+        }
+        table {
+            border-spacing: 0;
+            border-collapse: collapse;
+            display: block;
+            width: max-content;
+            max-width: 100%;
+            overflow: auto;
+            margin-bottom: 16px;
+        }
+        table th, table td {
+            padding: 8px 14px;
+            border: 1px solid var(--color-border-default);
+        }
+        table th {
+            font-weight: 600;
+            background-color: var(--color-canvas-subtle);
+        }
+        table tr:nth-child(2n) {
+            background-color: var(--color-canvas-subtle);
+        }
+        .math-display {
+            overflow-x: auto;
+            margin: 16px 0;
+            text-align: center;
+        }
+        img {
+            border-style: none;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+    <article class="markdown-body">
+<h1 id="scientific-project-data-tracking-template--guide">Scientific Project Data-Tracking Template & Guide</h1>
+<p>A lightweight, reproducible data-tracking framework and template repository for genomics and computational science projects tracked in Git.<br /></p>
+<p><a href="tests/test_data_tracker.sh"><img src="https://img.shields.io/badge/tests-22%20passed-brightgreen.svg" alt="Tests" style="max-width: 100%; height: auto; vertical-align: middle;" /></a><br /> <a href="scripts/data_tracker.sh"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20HPC-blue.svg" alt="Platform" style="max-width: 100%; height: auto; vertical-align: middle;" /></a><br /> <a href="GUIDE.html"><img src="https://img.shields.io/badge/reproducibility-3%20Pillars-orange.svg" alt="Reproducibility" style="max-width: 100%; height: auto; vertical-align: middle;" /></a><br /></p>
+<hr />
+<h2 id="workflow-summary">Workflow Summary</h2>
+<p>A lightweight reproducibility workflow for scientific repositories that manages external data, analysis code, and software environments across three pillars:<br /></p>
+<ul>
+<li><strong>Raw Data (Pillar 1):</strong> Large datasets remain on external storage, mapped into the project via symlinks (usually in <code>raw_data/</code> but can be anywhere else) and verified against upstream cryptographic hashes and modification timestamps via a Git-tracked manifest (<code>local_pointers.tsv</code>) that records relative paths and locked hashes.</li>
+<li><strong>Code & Workflows (Pillar 2):</strong> Scripts, pipelines, and notebooks are tracked directly in Git. Raw data and pipeline intermediates and results are excluded.</li>
+<li><strong>Environment Provenance (Pillar 3):</strong> Software and library versions are declared directly inside each script (header docstrings) and notebook (e.g., <code>session_info()</code>).</li>
+</ul>
+<hr />
+<h2 id="key-features">Key Features</h2>
+<ul>
+<li>⚡ <strong>Tier 1 Fast Handshake (<1s):</strong> Pre-commit hook verifies metadata exists and compares the locked hash against upstream text files (<code>md5sum *</code>, <code>sha256sum *</code>, or TSV manifests) without expensive full-file recalculation.</li>
+<li>🛡️ <strong>Stale Checksum Guard:</strong> Compares file modification timestamps (<code>mtime</code>). If an upstream data file was touched or modified after its checksum was created, commits are aborted.</li>
+<li>🔍 <strong>Tier 2 Deep Verification (<code>--deep</code>):</strong> Computes full cryptographic hashes across raw datasets on demand (e.g. before cluster submission or publication).</li>
+<li>📁 <strong>Hierarchical Checksums & Subdirectory Symlinks:</strong> Supports upstream manifests stored at higher directory levels and provisions organized subfolders (e.g. <code>raw_data/Resources/</code>, <code>raw_data/sciATAC_fragment_files/</code>).</li>
+<li>🛠️ <strong>Upstream Checksum Generator (<code>generate_checksums.sh</code>):</strong> Portable tool (macOS & Linux) to scan external storage directories and generate clean <code>checksums.tsv</code> files.</li>
+<li>📦 <strong>Batch Registration (<code>add-batch</code>):</strong> Register entire cohorts or folders of files matching regex/glob patterns in one command.</li>
+<li>📝 <strong>In-Document Version Locking:</strong> Full support for R Quarto (<code>sessioninfo::session_info()</code>), Python Quarto (<code>session_info.show()</code>), Python docstrings, and Bash pipeline headers.</li>
+<li>🌐 <strong>Environment Portability:</strong> All paths are relative to <code>$DATA_ROOT</code> (works seamlessly across local macOS laptops, institutional clusters, and cloud mounts).</li>
+</ul>
+<hr />
+<h2 id="directory-structure">Directory Structure</h2>
+<pre><code>.
+├── .agents/                  &lt;- Antigravity workspace customizations
+│   ├── hooks.json            &lt;- PreToolUse lifecycle safety firewall
+│   ├── scripts/guard.py      &lt;- Deterministic AI safety gatekeeper
+│   └── skills/               &lt;- Autonomous data-tracking skill
+├── .env.example              &lt;- Example configuration for $DATA_ROOT across OSes
+├── .githooks/
+│   └── pre-commit            &lt;- Enforces Tier 1 verification on git commit
+├── .gitignore                &lt;- Clean allowlist/blocklist for scientific projects
+├── .vscode/                  &lt;- Antigravity IDE one-click tasks and settings
+├── examples/                 &lt;- In-script versioning &amp; ingestion templates
+│   ├── 00_setup_data_symlinks.qmd    &lt;- Modernized R/Quarto symlink setup notebook
+│   ├── template_analysis_r.qmd       &lt;- R Quarto template with sessioninfo
+│   ├── template_analysis_python.qmd  &lt;- Python Quarto template with session_info
+│   ├── template_script.py            &lt;- Python script with version docstring
+│   └── template_pipeline.sh          &lt;- Bash pipeline with CLI tool versions
+├── local_pointers.tsv        &lt;- Active cryptographic pointer manifest (Pillar 1)
+├── local_pointers.example.tsv&lt;- Annotated example of multi-file checksum manifests
+├── raw_data/                 &lt;- Local symlink directory (gitignored, provisioned by tool)
+├── scripts/
+│   ├── data_tracker.sh       &lt;- Portable data-tracking CLI tool
+│   └── generate_checksums.sh &lt;- Portable upstream checksum &amp; manifest generator (Mac &amp; Linux)
+├── tests/
+│   └── test_data_tracker.sh  &lt;- Automated verification test suite (22 tests)
+├── GUIDE.md                  &lt;- Comprehensive project adoption handbook
+└── README.md                 &lt;- Project overview &amp; quickstart</code></pre>
+<hr />
+<h2 id="quickstart">Quickstart</h2>
+<h3 id="1-bootstrap-project">1. Bootstrap Project</h3>
+<pre><code class="language-bash">./scripts/data_tracker.sh init</code></pre>
+<h3 id="2-configure-local-storage-mount">2. Configure Local Storage Mount</h3>
+<p>Copy <code>.env.example</code> to <code>.env</code> (gitignored) and define your local data mount:<br /></p>
+<pre><code class="language-bash"># macOS:
+DATA_ROOT=/Volumes/LabDrive/raw_datasets
+
+# Linux HPC:
+DATA_ROOT=/mnt/scratch/bioinfo_core/raw_datasets</code></pre>
+<h3 id="3-add--lock-raw-datasets">3. Add & Lock Raw Datasets</h3>
+<pre><code class="language-bash">./scripts/data_tracker.sh add sample1.bam cohort1/bams/sample1.bam cohort1/checksums.md5</code></pre>
+<h3 id="4-verify-integrity">4. Verify Integrity</h3>
+<pre><code class="language-bash"># Routine Tier 1 check (&lt; 1 second)
+./scripts/data_tracker.sh verify
+
+# Deep cryptographic verification (on-demand before pipeline runs)
+./scripts/data_tracker.sh verify --deep</code></pre>
+<hr />
+<h2 id="documentation">Documentation</h2>
+<p>For detailed guides, migration instructions for existing projects, and operational recipes:<br /> 👉 <strong><a href="GUIDE.html">Read the Complete Adoption Guide (<code>GUIDE.md</code>)</a></strong><br /></p>
+<hr />
+<h2 id="verification--testing">Verification & Testing</h2>
+<p>Run the automated test suite to verify compatibility on your system:<br /></p>
+<pre><code class="language-bash">./tests/test_data_tracker.sh</code></pre>
+<p>All 22 tests covering bootstrap, multi-line parsing, Stale Checksum Guard, hash mismatches, updates, relocations, deep hashing, hierarchical manifests, and pre-commit hook enforcement will execute in an isolated sandbox.<br /></p>
+    </article>
+</body>
+</html>

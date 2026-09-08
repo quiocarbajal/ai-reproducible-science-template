@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Antigravity Agent Guidelines: Scientific Data Tracking &amp; Reproducibility</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif !important; line-height: 1.6 !important; max-width: 960px !important; margin: 40px auto !important; padding: 0 20px !important; color: #24292e !important; background-color: #ffffff !important; font-size: 15px !important; }
+  h1, h2, h3 { border-bottom: 1px solid #eaecef !important; padding-bottom: .3em !important; margin-top: 28px !important; color: #1f2328 !important; }
+  code { background-color: rgba(175,184,193,0.2) !important; border-radius: 4px !important; font-size: 85% !important; padding: .2em .4em !important; font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace !important; }
+  pre { background-color: #f6f8fa !important; border-radius: 6px !important; padding: 16px !important; overflow: auto !important; line-height: 1.45 !important; border: 1px solid #d0d7de !important; }
+  pre code { background-color: transparent !important; padding: 0 !important; font-size: 90% !important; }
+  table { border-collapse: collapse !important; width: 100% !important; margin-top: 16px !important; margin-bottom: 16px !important; display: table !important; }
+  table th, table td { border: 1px solid #d0d7de !important; padding: 6px 13px !important; }
+  table th { background-color: #f6f8fa !important; font-weight: 600 !important; }
+  table tr:nth-child(2n) { background-color: #f6f8fa !important; }
+  blockquote { margin: 16px 0 !important; padding: 0 1em !important; color: #57606a !important; border-left: .25em solid #d0d7de !important; }
+  a { color: #0969da !important; text-decoration: none !important; }
+  a:hover { text-decoration: underline !important; }
+  nav#TOC { background: #f6f8fa !important; padding: 1em 1.5em !important; border-radius: 6px !important; border: 1px solid #d0d7de !important; margin-bottom: 2em !important; }
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Antigravity Agent Guidelines: Scientific Data Tracking
+&amp; Reproducibility</h1>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#antigravity-agent-guidelines-scientific-data-tracking-reproducibility"
+id="toc-antigravity-agent-guidelines-scientific-data-tracking-reproducibility">Antigravity
+Agent Guidelines: Scientific Data Tracking &amp; Reproducibility</a>
+<ul>
+<li><a href="#core-architectural-constraints"
+id="toc-core-architectural-constraints">1. Core Architectural
+Constraints</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="antigravity-agent-guidelines-scientific-data-tracking-reproducibility">Antigravity
+Agent Guidelines: Scientific Data Tracking &amp; Reproducibility</h1>
+<p>You are assisting with a scientific / genomics repository that
+follows a strict <strong>Three Pillars Reproducibility
+Workflow</strong>.</p>
+<hr />
+<h2 id="core-architectural-constraints">1. Core Architectural
+Constraints</h2>
+<ol type="1">
+<li><strong>Strict Raw Data Boundary:</strong>
+<ul>
+<li>Raw datasets (FASTQs, BAMs, CRAMs, matrices) are stored externally
+under <code>$DATA_ROOT</code> and accessed locally via symlinks in
+<code>raw_data/</code>.</li>
+<li><strong>NEVER</strong> stage, commit, or force-add
+(<code>git add -f</code>) files inside <code>raw_data/</code> or any
+large binary files.</li>
+<li>An Antigravity AI lifecycle hook (<code>.agents/hooks.json</code>)
+is actively enforcing this rule; attempting to run
+<code>git add -f</code> will be hard-blocked.</li>
+<li><strong>NEVER</strong> use <code>view_file</code> or shell dumping
+(<code>cat</code>, <code>head</code>) on large binary files
+(<code>.bam</code>, <code>.cram</code>, <code>.fastq.gz</code>). Use
+domain tools like <code>samtools view -H</code> or
+<code>zcat | head</code> instead.</li>
+</ul></li>
+<li><strong>Data-Tracking Operations via CLI:</strong> Always use
+<code>./scripts/data_tracker.sh</code> for dataset management:
+<ul>
+<li>To register / lock a new dataset:
+<code>./scripts/data_tracker.sh add &lt;link_name&gt; &lt;rel_data_path&gt; &lt;rel_checksum_path&gt;</code></li>
+<li>To verify data integrity:
+<code>./scripts/data_tracker.sh verify</code> (Tier 1 fast
+handshake)</li>
+<li>For pre-publication audits:
+<code>./scripts/data_tracker.sh verify --deep</code> (Tier 2 full
+cryptographic calculation)</li>
+<li>To adopt new upstream hashes:
+<code>./scripts/data_tracker.sh update &lt;link_name&gt;</code></li>
+<li>If storage directories moved:
+<code>./scripts/data_tracker.sh relocate &lt;old_path&gt; &lt;new_path&gt;</code></li>
+<li>To provision local symlinks:
+<code>./scripts/data_tracker.sh link</code></li>
+<li>To inspect data status:
+<code>./scripts/data_tracker.sh status</code></li>
+</ul></li>
+<li><strong>In-Script &amp; In-Document Versioning (Pillar 3):</strong>
+<ul>
+<li>When generating new Quarto (<code>.qmd</code>) documents in R,
+always conclude with a final chunk calling
+<code>sessioninfo::session_info()</code>.</li>
+<li>When generating Quarto documents in Python, conclude with
+<code>session_info.show()</code> (via
+<code>import session_info</code>).</li>
+<li>When writing Python scripts (<code>.py</code>), include a top
+docstring specifying the tested Python version and core package
+versions.</li>
+<li>When writing Bash pipeline scripts (<code>.sh</code>), document
+tested CLI tools (<code>samtools</code>, <code>bedtools</code>, etc.) in
+the header block.</li>
+<li>Do not force monolithic Conda environments unless explicitly asked.
+Prefer standard virtual environments (<code>venv</code>).</li>
+</ul></li>
+<li><strong>Human-in-the-Loop Diagnostics (Never Auto-Update
+Pointers):</strong> If a Git pre-commit hook fails:
+<ul>
+<li><strong>NEVER</strong> run
+<code>./scripts/data_tracker.sh update</code> or modify
+<code>local_pointers.tsv</code> autonomously. An unexpected checksum
+mismatch could indicate data corruption or an unmounted volume.</li>
+<li>Diagnose the issue: check if <code>$DATA_ROOT</code> is mounted,
+whether the checksum is stale, or if the upstream hash changed.</li>
+<li>Clearly report the findings to the user and <strong>wait for their
+explicit confirmation</strong> before running any update or pointer
+modification.</li>
+</ul></li>
+</ol>
+</body>
+</html>

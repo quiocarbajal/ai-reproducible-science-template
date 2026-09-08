@@ -1,0 +1,136 @@
+---
+title: "00 Setup Data Symlinks & Cryptographic Pointers"
+author: "Agustin Carbajal & Research Team"
+date: today
+format:
+  html:
+    toc: true
+    code-fold: show
+# In-Document Provenance:
+# R: 4.3+ | tidyverse: 2.0+ | fs: 1.6+ | data_tracker.sh integration
+---
+
+## 1. Introduction & Workflow
+
+This Quarto document replaces manual, unversioned symlink scripts (such as legacy `00_Symlinks.Rmd`).
+Instead of fragile `../../../` relative paths that break across machines, this workflow:
+1. Resolves external datasets portably via `$DATA_ROOT` (defined in `.env`).
+2. Registers cryptographic hashes into `local_pointers.tsv`.
+3. Creates organized local symlinks in `raw_data/` (e.g., `raw_data/Resources/`, `raw_data/sciATAC_fragment_files/`).
+4. Verifies data integrity with the Stale Checksum Guard before any analysis begins.
+
+---
+
+## 2. Environment & Helper Functions
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(fs)
+
+# Load DATA_ROOT from project .env or system environment
+get_data_root <- function() {
+  # Check if .env exists in project root
+  if (file.exists(".env")) {
+    readRenviron(".env")
+  }
+  
+  root <- Sys.getenv("DATA_ROOT", unset = "")
+  if (root == "" || !dir.exists(root)) {
+    stop("DATA_ROOT is not set or directory does not exist. Please check your .env file.")
+  }
+  return(root)
+}
+
+data_root <- get_data_root()
+message("Using external DATA_ROOT: ", data_root)
+
+# Helper function to track & link a single file using data_tracker.sh
+track_dataset <- function(link_name, rel_source_path, rel_checksum_path) {
+  res <- system2("./scripts/data_tracker.sh", 
+                 args = c("add", link_name, rel_source_path, rel_checksum_path),
+                 stdout = TRUE, stderr = TRUE)
+  status <- attr(res, "status")
+  if (!is.null(status) && status != 0) {
+    stop("Failed to track: ", link_name, "\n", paste(res, collapse = "\n"))
+  }
+  message("✓ Tracked & linked: ", link_name)
+}
+```
+
+---
+
+## 3. Provision Reference Resources
+
+Link individual reference files into organized subdirectories inside `raw_data/Resources/`:
+
+```{r resources}
+# Upstream references often have their own checksums file (e.g., in References/Mice/checksums.tsv)
+# track_dataset(
+#   link_name = "Resources/tes.expanded.bed",
+#   rel_source_path = "References/Mice/cell_ranger_datasets/refdata-cellranger-arc-mm10-2020-A-2.0.0/tes.expanded.bed",
+#   rel_checksum_path = "References/Mice/checksums.tsv"
+# )
+
+# track_dataset(
+#   link_name = "Resources/tss.expanded.bed",
+#   rel_source_path = "References/Mice/cell_ranger_datasets/refdata-cellranger-arc-mm10-2020-A-2.0.0/tss.expanded.bed",
+#   rel_checksum_path = "References/Mice/checksums.tsv"
+# )
+```
+
+---
+
+## 4. Batch Discovery & Linking (sciATAC Fragment Files)
+
+Using R's pattern matching (`list.files`) to batch-register multiple fragment files from a cohort,
+referencing a higher-level upstream `checksums.tsv` file:
+
+```{r batch_fragments}
+# Define the cohort folder relative to DATA_ROOT
+cohort_dir <- "sciATAC-seq/sciATAC_seq_Sep_2024_HP1ag_dKO_CHD4_KO_BAF200_KO/fragment_files"
+abs_cohort_dir <- file.path(data_root, cohort_dir)
+
+# Higher-level checksum file residing one level up (or at the root of the cohort)
+rel_checksum_file <- "sciATAC-seq/sciATAC_seq_Sep_2024_HP1ag_dKO_CHD4_KO_BAF200_KO/checksums.tsv"
+
+if (dir.exists(abs_cohort_dir)) {
+  # Discover files using regex pattern matching
+  frag_files <- list.files(
+    path = abs_cohort_dir,
+    pattern = "CHD4|WT.*\\.gz$",
+    full.names = FALSE
+  )
+  
+  message(sprintf("Discovered %d matching fragment files in cohort.", length(frag_files)))
+
+  # Batch register all discovered files
+  walk(frag_files, function(f) {
+    track_dataset(
+      link_name = file.path("sciATAC_fragment_files", f),
+      rel_source_path = file.path(cohort_dir, f),
+      rel_checksum_path = rel_checksum_file
+    )
+  })
+} else {
+  message("Cohort directory not found on current DATA_ROOT mount. (Example template)")
+}
+```
+
+---
+
+## 5. Verify All Pointers
+
+Execute Tier 1 verification to ensure all local symlinks are healthy and hashes match:
+
+```{r verify}
+verify_output <- system("./scripts/data_tracker.sh verify", intern = TRUE)
+cat(verify_output, sep = "\n")
+```
+
+---
+
+## 6. Session Information & Provenance
+
+```{r session_info}
+sessioninfo::session_info()
+```

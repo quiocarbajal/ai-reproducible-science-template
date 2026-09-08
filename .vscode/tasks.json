@@ -1,0 +1,61 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Data Tracker: Tier 1 Fast Verify",
+      "type": "shell",
+      "command": "./scripts/data_tracker.sh verify",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Data Tracker: Tier 2 Deep Cryptographic Verify",
+      "type": "shell",
+      "command": "./scripts/data_tracker.sh verify --deep",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Data Tracker: Provision Symlinks",
+      "type": "shell",
+      "command": "./scripts/data_tracker.sh link",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Data Tracker: Status Overview",
+      "type": "shell",
+      "command": "./scripts/data_tracker.sh status",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Data Tracker: Run Automated Test Suite",
+      "type": "shell",
+      "command": "./tests/test_data_tracker.sh",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

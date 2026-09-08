@@ -1,0 +1,60 @@
+---
+title: "Genomics Analysis (Python Template)"
+author: "Research Team"
+date: today
+format:
+  html:
+    toc: true
+    code-fold: show
+jupyter: python3
+# In-Document Provenance: Core tool versions tested for this analysis
+# Python: 3.11+ | pandas: 2.2+ | numpy: 1.26+ | session_info: 1.0+
+---
+
+## 1. Introduction & Objectives
+
+This notebook demonstrates the in-document version-locking pattern for Python-based Quarto analyses.
+Input raw datasets are accessed via symlinks in `raw_data/` linked to external storage.
+
+## 2. Load Libraries
+
+```{python}
+import sys
+import os
+import pandas as pd
+import numpy as np
+```
+
+## 3. Data Ingestion via Locked Pointers
+
+```{python}
+data_path = "raw_data/sample1.bam"
+if os.path.exists(data_path):
+    print(f"Locked data available at: {data_path}")
+else:
+    print("Run './scripts/data_tracker.sh link' to provision symlinks from $DATA_ROOT.")
+```
+
+## 4. Analysis Workflow
+
+```{python}
+# Analysis operations go here
+```
+
+## 5. Session Information & In-Document Version Locking
+
+> [!NOTE]
+> Running `session_info.show()` permanently prints the exact Python interpreter version,
+> OS platform, and all imported package versions directly into the report.
+
+```{python}
+try:
+    import session_info
+    session_info.show()
+except ImportError:
+    # Built-in zero-dependency fallback
+    print(f"Python: {sys.version.split()[0]}")
+    for name, mod in sorted(sys.modules.items()):
+        if hasattr(mod, '__version__') and not name.startswith('_') and '.' not in name:
+            print(f"  {name}: {mod.__version__}")
+```

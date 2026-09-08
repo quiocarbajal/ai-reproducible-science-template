@@ -1,0 +1,65 @@
+# ==============================================================================
+# 1. RAW & EXTERNAL DATA (Symlinks & Large Genomic Files)
+#    All raw data is accessed via external pointers defined in local_pointers.tsv.
+# ==============================================================================
+raw_data/
+data/raw/
+data/external/
+
+# Large genomic binary & index formats
+*.bam
+*.bai
+*.cram
+*.crai
+*.fastq.gz
+*.fq.gz
+*.vcf.gz
+*.tbi
+*.bed.gz
+*.h5ad
+*.rds
+*.tar.gz
+*.zip
+
+# ==============================================================================
+# 2. PIPELINE INTERMEDIATES & DERIVED ARTIFACTS
+#    Generated state is reproducible from: Raw Data + Code + Software Environment
+# ==============================================================================
+work/
+.nextflow/
+.nextflow.log*
+.snakemake/
+.cache/
+tmp/
+scratch/
+.test_tmp/
+results/
+output/
+logs/
+*.log
+.staging/
+
+# ==============================================================================
+# 3. ENVIRONMENT & SECRETS
+# ==============================================================================
+.env
+.env.*
+!.env.example
+
+# ==============================================================================
+# 4. OS & IDE ARTIFACTS
+# ==============================================================================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/tasks.json
+!.vscode/settings.json
+!.vscode/extensions.json
+*.swp
+*~
+*.Rhistory
+.RData
+.Rhistory
+__pycache__/
+*.pyc

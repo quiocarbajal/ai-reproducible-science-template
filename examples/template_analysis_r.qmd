@@ -1,0 +1,56 @@
+---
+title: "Genomics Analysis (R Template)"
+author: "Research Team"
+date: today
+format:
+  html:
+    toc: true
+    code-fold: show
+# In-Document Provenance: Core tool versions tested for this analysis
+# R: 4.3+ | BiocManager: 3.18+ | DESeq2: 1.42+ | tidyverse: 2.0+
+---
+
+## 1. Introduction & Objectives
+
+This notebook demonstrates the in-document version-locking pattern for R-based Quarto analyses.
+Input raw data is accessed via symlinks in `raw_data/` provisioned by `scripts/data_tracker.sh`.
+
+## 2. Load Libraries
+
+```{r}
+#| message: false
+#| warning: false
+library(tidyverse)
+# library(DESeq2)
+# library(GenomicRanges)
+```
+
+## 3. Data Ingestion via Locked Pointers
+
+```{r}
+# Data files are accessed through the gitignored raw_data/ symlink directory
+data_file <- "raw_data/sample1.bam"
+if (file.exists(data_file)) {
+  message("Found locked input data: ", data_file)
+} else {
+  message("Raw data symlink not yet provisioned. Run: ./scripts/data_tracker.sh link")
+}
+```
+
+## 4. Analysis Workflow
+
+```{r}
+# Perform reproducible analysis steps here
+# df <- read_tsv(...)
+```
+
+## 5. Session Information & In-Document Version Locking
+
+> [!NOTE]
+> Rendering `sessionInfo()` in the final chunk permanently records the exact R version,
+> OS platform, and attached package versions into the Git-committed `.qmd` and rendered report.
+
+```{r}
+#| echo: true
+sessioninfo::session_info()
+```

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Git Pre-Commit Hook: Tier 1 Data Integrity & Handshake Verification
+#
+# Prevents committing changes if:
+# - DATA_ROOT is unset or unmounted
+# - Tracked external data files are missing
+# - Upstream checksum files are stale relative to data binaries
+# - Upstream hashes do not match local_pointers.tsv
+# ==============================================================================
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+TRACKER="${REPO_ROOT}/scripts/data_tracker.sh"
+POINTERS_FILE="${REPO_ROOT}/local_pointers.tsv"
+
+# If no pointers file exists or no pointers are tracked, pass cleanly
+if [[ ! -f "$POINTERS_FILE" ]]; then
+    exit 0
+fi
+
+# Count non-header non-comment rows
+ENTRY_COUNT=$(awk -F'\t' 'NR>1 && $1!="" && $1!~/^#/ {count++} END {print count+0}' "$POINTERS_FILE")
+if [[ "$ENTRY_COUNT" -eq 0 ]]; then
+    exit 0
+fi
+
+printf "\n\033[1m[Pre-Commit] Running Tier 1 Data-Tracking Verification...\033[0m\n"
+
+# Verify tracker exists
+if [[ ! -x "$TRACKER" ]]; then
+    printf "\033[0;31m[ERROR] Data tracking script not found or not executable: %s\033[0m\n" "$TRACKER" >&2
+    exit 1
+fi
+
+# Execute Tier 1 fast verification
+if ! "$TRACKER" verify; then
+    printf "\n\033[0;31m[FATAL] Pre-commit verification failed!\033[0m\n" >&2
+    printf "  A data pointer mismatch, missing file, or stale upstream checksum was detected.\n" >&2
+    printf "  Remediation options:\n" >&2
+    printf "    - If upstream data was intentionally updated:  ./scripts/data_tracker.sh update <link_name>\n" >&2
+    printf "    - If upstream checksum is stale:               re-run md5sum/sha256sum at the source\n" >&2
+    printf "    - If server mount moved:                       ./scripts/data_tracker.sh relocate <old> <new>\n" >&2
+    printf "    - If DATA_ROOT is not mounted:                 ensure disk is mounted and set in .env\n\n" >&2
+    exit 1
+fi
+
+printf "\033[0;32m[Pre-Commit] Data integrity verified successfully.\033[0m\n\n"
+exit 0

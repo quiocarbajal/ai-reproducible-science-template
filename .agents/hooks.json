@@ -1,0 +1,14 @@
+{
+  "scientific-data-guard": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command|view_file",
+        "hooks": [
+          {
+            "command": "python3 scripts/guard.py"
+          }
+        ]
+      }
+    ]
+  }
+}
