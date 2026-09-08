@@ -190,42 +190,34 @@ The pre-commit hook automatically executes Tier 1 verification and verifies all 
 
 If you already have a running Git repository and want to retrofit this workflow:  
 
-1. **Copy the essential files** into your project:  
+1. **Copy the essential scripts and templates** into your project:  
    ```bash
    cp -r /path/to/template/scripts/ your_project/scripts/
    cp -r /path/to/template/.githooks/ your_project/.githooks/
    cp /path/to/template/.env.example your_project/.env.example
    ```
-2. **Update your `.gitignore`**:  
-   Add the following blocks to your project's `.gitignore`:  
-   ```gitignore
-   # Raw data symlinks & binaries
-   raw_data/
-   *.bam
-   *.bai
-   *.cram
-   *.fastq.gz
-   *.vcf.gz
+   *(Note: Copying `.env.example` ensures your repository tracks the configuration template in Git so future collaborators know what variables to configure).*
 
-   # Pipeline scratch and intermediate runs
-   work/
-   .nextflow/
-   .snakemake/
-   results/
-   tmp/
-
-   # Environment secrets
-   .env
-   .env.*
-   !.env.example
+2. **Configure your `.gitignore`**:  
+   If your project does not have a `.gitignore` yet, copy the comprehensive template file directly:  
+   ```bash
+   cp /path/to/template/.gitignore your_project/.gitignore
    ```
-3. **Bootstrap and enable hooks**:  
+   If your project already has an existing `.gitignore`, append the template rules to it:  
+   ```bash
+   cat /path/to/template/.gitignore >> your_project/.gitignore
+   ```
+   *(Note: The rule `!.env.example` in `.gitignore` is an intentional whitelist exception—it ensures the `.env.example` blueprint stays tracked in Git while local machine `.env` files remain strictly ignored).*
+
+3. **Bootstrap tracking and enable hooks**:  
    ```bash
    cd your_project
    ./scripts/data_tracker.sh init
    ```
-4. **Register existing data**:  
-   Run `data_tracker.sh add` for each of your external datasets.  
+   *(This automatically generates your local, gitignored `.env` from `.env.example`, initializes `local_pointers.tsv`, and activates the Git pre-commit verification hook).*
+
+4. **Configure `$DATA_ROOT` and register data**:  
+   Edit `.env` to set your local storage path, then run `./scripts/data_tracker.sh add` (or `add-batch`) for each external dataset.  
 
 ---
 

@@ -109,3 +109,6 @@ Run the automated test suite to verify compatibility on your system:
 ./tests/test_data_tracker.sh
 ```
 All 22 tests covering bootstrap, multi-line parsing, Stale Checksum Guard, hash mismatches, updates, relocations, deep hashing, hierarchical manifests, and pre-commit hook enforcement will execute in an isolated sandbox.  
+
+## Credits  
+This project was designed and implemented with the help of AI (mostly Gemini, Flash 3.8)  
