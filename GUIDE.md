@@ -271,6 +271,9 @@ If the upstream server or drive doesn't have a checksum file yet:
 ```bash
 # Recursively scan and create checksums.tsv at the root of the cohort
 ./scripts/generate_checksums.sh /path/to/external_datasets/study_2026 -p "*.bam"
+
+# Incrementally update existing checksums.tsv (only hashes new or modified files)
+./scripts/generate_checksums.sh /path/to/external_datasets/study_2026 -u
 ```
 
 ### Recipe 7: Batch Registering Cohorts

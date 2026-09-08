@@ -104,6 +104,7 @@ Options:
   -o, --output <filename>    Output filename (default: checksums.tsv inside target_directory)
   -a, --algo <md5|sha256>    Hash algorithm (default: md5)
   -p, --pattern <glob>       File pattern to match (e.g., "*.bam", "*.fastq.gz")
+  -u, --update               Incremental update mode: only hash new or modified files (mtime newer than table)
   --include-all              Include all regular files (default skips hidden, .md5, .sha256, and .log files)
   -v, --verbose              Verbose mode (print per-file hashing progress)
   -q, --quiet, --non-verbose Non-verbose mode (default; suppress per-file hashing progress)
@@ -111,6 +112,7 @@ Options:
 
 Examples:
   $(basename "$0") /path/to/project_2026
+  $(basename "$0") /path/to/project_2026 -u
   $(basename "$0") /path/to/project_2026 -o source_checksums.tsv -a sha256
   $(basename "$0") /path/to/project_2026 -p "*.bam" -v
 EOF
@@ -125,6 +127,7 @@ ALGO="md5"
 PATTERN=""
 INCLUDE_ALL=0
 VERBOSE=0
+UPDATE_MODE=0
 
 # No arguments provided -> show help
 if [[ $# -eq 0 ]]; then
@@ -163,6 +166,10 @@ while [[ $# -gt 0 ]]; do
             fi
             PATTERN="$2"
             shift 2
+            ;;
+        -u|--update)
+            UPDATE_MODE=1
+            shift
             ;;
         --include-all)
             INCLUDE_ALL=1
@@ -234,6 +241,7 @@ printf "\n${BOLD}============================================================${N
 printf "${BOLD}Generating Upstream Checksum Manifest (${ALGO_UPPER})${NC}\n"
 printf "Target directory: %s\n" "$TARGET_DIR"
 printf "Output manifest:  %s\n" "$OUTPUT_FILE"
+[[ $UPDATE_MODE -eq 1 ]] && printf "Update mode:      Incremental (only hash new or modified files)\n"
 [[ -n "$PATTERN" ]] && printf "Filter pattern:   %s\n" "$PATTERN"
 if [[ $VERBOSE -eq 1 ]]; then
     printf "${BOLD}============================================================${NC}\n\n"
@@ -247,55 +255,111 @@ trap 'rm -f "$TMP_OUT"' EXIT INT TERM
 printf "relative_path\thash\tsize_bytes\tmodified_date\n" > "$TMP_OUT"
 
 TOTAL_FILES=0
+HASHED_FILES=0
+REUSED_FILES=0
 TOTAL_BYTES=0
 
-# Scan files
-while IFS= read -r filepath; do
-    # Skip if file is the output manifest or temp files
-    local_base="$(basename "$filepath")"
-    if [[ "$filepath" == "$OUTPUT_FILE" || ( "$local_base" == "$OUTPUT_BASENAME" && "$(dirname "$filepath")" == "$(dirname "$OUTPUT_FILE")" ) || "$local_base" == checksums.tmp.* ]]; then
-        continue
-    fi
+# Scan matching candidate files and extract metadata
+scan_candidates() {
+    while IFS= read -r filepath; do
+        # Skip if file is the output manifest or temp files
+        local_base="$(basename "$filepath")"
+        if [[ "$filepath" == "$OUTPUT_FILE" || ( "$local_base" == "$OUTPUT_BASENAME" && "$(dirname "$filepath")" == "$(dirname "$OUTPUT_FILE")" ) || "$local_base" == checksums.tmp.* ]]; then
+            continue
+        fi
 
-    # Compute relative path from TARGET_DIR
-    rel_path="${filepath#"${TARGET_DIR}/"}"
+        # Compute relative path from TARGET_DIR
+        rel_path="${filepath#"${TARGET_DIR}/"}"
 
-    # Skip hidden files and hidden directories unless --include-all is specified
-    if [[ $INCLUDE_ALL -eq 0 && ("$local_base" == .* || "$rel_path" == .* || "$rel_path" == *"/."*) ]]; then
-        continue
-    fi
+        # Skip hidden files and hidden directories unless --include-all is specified
+        if [[ $INCLUDE_ALL -eq 0 && ("$local_base" == .* || "$rel_path" == .* || "$rel_path" == *"/."*) ]]; then
+            continue
+        fi
 
-    # Skip checksum (.md5, .sha256, etc.) and log (.log) files unless specified
-    local_lower="$(echo "$local_base" | tr '[:upper:]' '[:lower:]')"
-    if [[ $INCLUDE_ALL -eq 0 ]]; then
-        case "$local_lower" in
-            *.md5|*.md5sum|*.sha256|*.sha256sum|*.sha2|*.log)
-                continue
-                ;;
-        esac
-    fi
+        # Skip checksum (.md5, .sha256, etc.) and log (.log) files unless specified
+        local_lower="$(echo "$local_base" | tr '[:upper:]' '[:lower:]')"
+        if [[ $INCLUDE_ALL -eq 0 ]]; then
+            case "$local_lower" in
+                *.md5|*.md5sum|*.sha256|*.sha256sum|*.sha2|*.log)
+                    continue
+                    ;;
+            esac
+        fi
 
-    # Calculate metrics
-    file_size=$(get_size "$filepath")
-    file_mtime=$(get_mtime "$filepath")
-    file_date=$(format_date "$file_mtime")
+        # Calculate metrics
+        file_size=$(get_size "$filepath")
+        file_mtime=$(get_mtime "$filepath")
+        file_date=$(format_date "$file_mtime")
 
-    [[ $VERBOSE -eq 1 ]] && printf "  Hashing: %s ... " "$rel_path"
-    file_hash=$(compute_hash "$filepath" "$ALGO")
-    [[ $VERBOSE -eq 1 ]] && printf "%s\n" "$file_hash"
+        printf "%s\t%s\t%s\t%s\n" "$rel_path" "$file_size" "$file_date" "$filepath"
+    done < <(
+        if [[ -n "$PATTERN" ]]; then
+            find "$TARGET_DIR" -type f -name "$PATTERN" | sort
+        else
+            find "$TARGET_DIR" -type f | sort
+        fi
+    )
+}
 
-    printf "%s\t%s\t%s\t%s\n" "$rel_path" "$file_hash" "$file_size" "$file_date" >> "$TMP_OUT"
-
-    TOTAL_FILES=$((TOTAL_FILES + 1))
-    TOTAL_BYTES=$((TOTAL_BYTES + file_size))
-
-done < <(
-    if [[ -n "$PATTERN" ]]; then
-        find "$TARGET_DIR" -type f -name "$PATTERN" | sort
+# Determine actions (REUSE existing hash vs HASH newly)
+process_stream() {
+    if [[ $UPDATE_MODE -eq 1 && -f "$OUTPUT_FILE" ]]; then
+        awk -F"\t" -v OFS="\t" -v algo="$ALGO" '
+        NR == FNR {
+            if (FNR > 1) {
+                ex_hash[$1] = $2
+                ex_size[$1] = $3
+                ex_date[$1] = $4
+            }
+            next
+        }
+        {
+            rel = $1
+            f_size = $2
+            f_date = $3
+            f_path = $4
+            expected_len = (algo == "sha256" ? 64 : 32)
+            if (rel in ex_date && length(ex_hash[rel]) == expected_len && f_size == ex_size[rel] && f_date <= ex_date[rel]) {
+                print "REUSE", rel, ex_hash[rel], ex_size[rel], ex_date[rel]
+            } else {
+                print "HASH", rel, f_size, f_date, f_path
+            }
+        }
+        ' "$OUTPUT_FILE" <(scan_candidates)
     else
-        find "$TARGET_DIR" -type f | sort
+        awk -F"\t" -v OFS="\t" '{ print "HASH", $1, $2, $3, $4 }' <(scan_candidates)
     fi
-)
+}
+
+while IFS=$'\t' read -r action rel col3 col4 col5; do
+    [[ -z "$action" ]] && continue
+    if [[ "$action" == "REUSE" ]]; then
+        file_hash="$col3"
+        file_size="$col4"
+        file_date="$col5"
+
+        [[ $VERBOSE -eq 1 ]] && printf "  Reusing: %s (unchanged)\n" "$rel"
+        printf "%s\t%s\t%s\t%s\n" "$rel" "$file_hash" "$file_size" "$file_date" >> "$TMP_OUT"
+
+        TOTAL_FILES=$((TOTAL_FILES + 1))
+        REUSED_FILES=$((REUSED_FILES + 1))
+        TOTAL_BYTES=$((TOTAL_BYTES + file_size))
+    elif [[ "$action" == "HASH" ]]; then
+        file_size="$col3"
+        file_date="$col4"
+        filepath="$col5"
+
+        [[ $VERBOSE -eq 1 ]] && printf "  Hashing: %s ... " "$rel"
+        file_hash=$(compute_hash "$filepath" "$ALGO")
+        [[ $VERBOSE -eq 1 ]] && printf "%s\n" "$file_hash"
+
+        printf "%s\t%s\t%s\t%s\n" "$rel" "$file_hash" "$file_size" "$file_date" >> "$TMP_OUT"
+
+        TOTAL_FILES=$((TOTAL_FILES + 1))
+        HASHED_FILES=$((HASHED_FILES + 1))
+        TOTAL_BYTES=$((TOTAL_BYTES + file_size))
+    fi
+done < <(process_stream)
 
 # Write to final output manifest in-place (preserves inode & avoids Dropbox/sync move alerts)
 cat "$TMP_OUT" > "$OUTPUT_FILE"
@@ -305,6 +369,10 @@ rm -f "$TMP_OUT"
 touch "$OUTPUT_FILE"
 
 printf "\n${GREEN}[SUCCESS]${NC} Manifest generated successfully!\n"
-printf "  Total files: %d\n" "$TOTAL_FILES"
+if [[ $UPDATE_MODE -eq 1 ]]; then
+    printf "  Total files: %d (%d hashed, %d reused)\n" "$TOTAL_FILES" "$HASHED_FILES" "$REUSED_FILES"
+else
+    printf "  Total files: %d\n" "$TOTAL_FILES"
+fi
 printf "  Total size:  %s bytes\n" "$TOTAL_BYTES"
 printf "  Output:      %s\n\n" "$OUTPUT_FILE"

@@ -83,6 +83,11 @@ Thumbs.db
 __pycache__/
 *.pyc
 
+# Local personal utilities & doc rendering
+scripts/sync_to_dropbox.sh
+scripts/render_markdown_to_html.py
+*.html
+
 # ==============================================================================
 # 5. WHITELIST / EXCEPTIONS (Track Specific Excluded Files)
 #    To track a specific small binary or intermediate file in Git without
