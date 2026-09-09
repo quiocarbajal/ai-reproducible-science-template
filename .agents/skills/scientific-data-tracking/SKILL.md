@@ -53,3 +53,4 @@ When opening the project on a new machine or cluster node:
 ## Constraints
 * Never run `git add -f` or `git add raw_data/`.
 * Never read binary files (`.bam`, `.cram`, `.fastq.gz`) with `view_file` or `cat`.
+* Source datasets under `$DATA_ROOT` and `raw_data/` are strictly read-only: never modify, overwrite, append to, truncate, delete, or rename source data. Direct all pipeline outputs to `results/` or `output/`.

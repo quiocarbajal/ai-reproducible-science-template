@@ -76,15 +76,49 @@ def check_run_command(cmd: str):
             "untracked data, symlinks, or .env configuration. User confirmation required."
         )
 
+    # 6. Hard-block write/delete/redirection operations targeting raw_data/ or DATA_ROOT
+    if re.search(r"(>|>>|\btee\b|\btruncate\b|\bsed\b\s+-i|\brm\b|\bmv\b).*?\braw_data(/|\b)", cmd):
+        respond(
+            "deny",
+            "HARD BLOCKED by AI Hook: Direct modification, deletion, or output redirection into 'raw_data/' "
+            "is strictly prohibited. Raw datasets are immutable read-only inputs. "
+            "Direct all pipeline and script outputs to 'results/', 'output/', or 'scratch/'."
+        )
+
+    # Check DATA_ROOT modifications if defined
+    data_root = os.environ.get("DATA_ROOT", "")
+    if not data_root:
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        env_file = os.path.join(repo_root, ".env")
+        if os.path.exists(env_file):
+            try:
+                with open(env_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("DATA_ROOT=") and not line.startswith("#"):
+                            data_root = line.split("=", 1)[1].strip().strip('"').strip("'")
+            except Exception:
+                pass
+
+    if data_root and len(data_root) > 3 and data_root in cmd:
+        if re.search(r"(>|>>|\btee\b|\btruncate\b|\bsed\b\s+-i|\brm\b|\bmv\b)", cmd):
+            respond(
+                "deny",
+                f"HARD BLOCKED by AI Hook: Modifying or redirecting output into DATA_ROOT ('{data_root}') "
+                "is strictly prohibited. External source datasets are immutable and read-only."
+            )
+
     # Allow everything else
     respond("allow")
 
 def check_view_file(path: str):
     # Normalize path
     norm_path = os.path.normpath(path)
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    project_raw_data = os.path.join(repo_root, "raw_data")
 
-    # 1. Block viewing files inside raw_data/
-    if "/raw_data/" in norm_path or norm_path.endswith("/raw_data"):
+    # 1. Block viewing files inside this project's raw_data/
+    if norm_path == project_raw_data or norm_path.startswith(project_raw_data + os.sep):
         respond(
             "deny",
             "HARD BLOCKED by AI Hook: Cannot read files inside 'raw_data/' into context window. "
