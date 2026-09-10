@@ -282,6 +282,31 @@ To register an entire folder of files into a categorized subdirectory:
 If you prefer managing symlinks in R (modernizing `00_Symlinks.Rmd`), open and customize:  
 👉 **[`examples/00_setup_data_symlinks.qmd`](examples/00_setup_data_symlinks.qmd)**  
 
+### Recipe 9: Adopting an Existing Project with Scattered Symlinks & Multi-Mount Roots
+If adopting this framework on an already-started project where symlinks live in disparate subfolders (e.g. `analyses/01_qc/inputs/sample1.bam`, `references/hg38.fa`):
+
+1. Configure `.env` to enable repository-relative mode:
+   ```bash
+   DATA_ROOT=/Volumes/PrimaryDataStorage
+   SYMLINK_DIR=.
+   ```
+2. If your files span multiple storage mounts (e.g. references on a separate drive), declare secondary roots:
+   ```bash
+   REF_ROOT=/Volumes/SharedGenomes
+   ```
+3. Run the automated adoption scanner:
+   ```bash
+   # Preview adoption without modifying local_pointers.tsv
+   ./scripts/data_tracker.sh adopt --dry-run
+
+   # Perform adoption, Git safety audit, and automatic manifest generation
+   ./scripts/data_tracker.sh adopt
+   ```
+4. Verify all adopted pointers:
+   ```bash
+   ./scripts/data_tracker.sh verify
+   ```
+
 ---
 
 ## 8. Summary of Commands
@@ -289,16 +314,17 @@ If you prefer managing symlinks in R (modernizing `00_Symlinks.Rmd`), open and c
 | Command | Action |
 | :--- | :--- |
 | `./scripts/data_tracker.sh init` | Bootstrap directories, `.env`, and Git pre-commit hook |
-| `./scripts/data_tracker.sh add <link> <data> <meta>` | Lock dataset with Stale Guard & create symlink (subfolders supported) |
+| `./scripts/data_tracker.sh add <link> <data> <meta>` | Lock dataset with Stale Guard & create symlink (`ROOT_NAME:` supported) |
 | `./scripts/data_tracker.sh add-batch <dest> <dir> <meta> [-p]` | Batch register files from upstream folder matching pattern |
+| `./scripts/data_tracker.sh adopt [--dry-run]` | Scan repo for existing symlinks, audit `.gitignore`, & auto-import |
 | `./scripts/generate_checksums.sh <dir> [opts]` | Generate clean upstream `checksums.tsv` (macOS & Linux compatible) |
-| `./scripts/data_tracker.sh verify` | Tier 1 Fast Handshake check (sub-second) |
-| `./scripts/data_tracker.sh verify --deep` | Tier 2 Deep cryptographic verification |
+| `./scripts/data_tracker.sh verify` | Tier 1 Fast Handshake check across all configured roots (<1s) |
+| `./scripts/data_tracker.sh verify --deep` | Tier 2 Deep cryptographic verification across all storage roots |
 | `./scripts/data_tracker.sh update <link>` | Pull updated upstream hash into TSV (requires human approval) |
 | `./scripts/data_tracker.sh relocate <old> <new>` | Batch rename paths in TSV & re-link |
-| `./scripts/data_tracker.sh link` | Provision / repair all symlinks in `raw_data/` |
-| `./scripts/data_tracker.sh status` | Display pointer table & symlink health |
-| `./tests/test_data_tracker.sh` | Run automated test suite (22 test assertions) |
+| `./scripts/data_tracker.sh link` | Provision / repair all symlinks across project |
+| `./scripts/data_tracker.sh status` | Display pointer table, root mounts, & symlink health |
+| `./tests/test_data_tracker.sh` | Run automated test suite (34 test assertions) |
 
 ---
 

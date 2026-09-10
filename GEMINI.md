@@ -7,20 +7,21 @@ You are assisting with a scientific / genomics repository that follows a strict 
 ## 1. Core Architectural Constraints
 
 1. **Strict Raw Data Boundary:**
-   - Raw datasets (FASTQs, BAMs, CRAMs, matrices) are stored externally under `$DATA_ROOT` and accessed locally via symlinks in `raw_data/`.
-   - **NEVER** stage, commit, or force-add (`git add -f`) files inside `raw_data/` or any large binary files.
+   - Raw datasets (FASTQs, BAMs, CRAMs, matrices) are stored externally under `$DATA_ROOT` (or named roots like `$REF_ROOT`) and accessed locally via symlinks in `raw_data/` (or project subdirectories when `SYMLINK_DIR=.` is configured in `.env`).
+   - **NEVER** stage, commit, or force-add (`git add -f`) raw data symlinks or any large binary files.
    - An Antigravity AI lifecycle hook (`.agents/hooks.json`) is actively enforcing this rule; attempting to run `git add -f` will be hard-blocked.
    - **NEVER** use `view_file` or shell dumping (`cat`, `head`) on large binary files (`.bam`, `.cram`, `.fastq.gz`). Use domain tools like `samtools view -H` or `zcat | head` instead.
 
 2. **Strict Read-Only Source Data Invariant (Immutable Raw Inputs):**
-   - Source datasets under `$DATA_ROOT` and their local symlinks in `raw_data/` are **strictly immutable and read-only**.
+   - Source datasets under storage roots and their local symlinks are **strictly immutable and read-only**.
    - **NEVER** edit, overwrite, append to, truncate, delete, or rename source data files in any way (whether directly or through shell redirection, `rm`, `sed`, `mv`, Python, R, or pipeline outputs).
-   - Any pipeline outputs, intermediate files, or filtered datasets must **always** be directed to project output folders (e.g. `results/`, `output/`, `scratch/`), **never** back into `$DATA_ROOT` or `raw_data/`.
+   - Any pipeline outputs, intermediate files, or filtered datasets must **always** be directed to project output folders (e.g. `results/`, `output/`, `scratch/`), **never** back into storage roots or symlink folders.
 
 3. **Data-Tracking Operations via CLI:**
    Always use `./scripts/data_tracker.sh` for dataset management:
    - To register / lock a new dataset: `./scripts/data_tracker.sh add <link_name> <rel_data_path> <rel_checksum_path>`
-   - To verify data integrity: `./scripts/data_tracker.sh verify` (Tier 1 fast handshake)
+   - To auto-adopt existing project symlinks: `./scripts/data_tracker.sh adopt [--dry-run]`
+   - To verify data integrity: `./scripts/data_tracker.sh verify` (Tier 1 fast handshake across all active roots)
    - For pre-publication audits: `./scripts/data_tracker.sh verify --deep` (Tier 2 full cryptographic calculation)
    - To adopt new upstream hashes: `./scripts/data_tracker.sh update <link_name>`
    - If storage directories moved: `./scripts/data_tracker.sh relocate <old_path> <new_path>`

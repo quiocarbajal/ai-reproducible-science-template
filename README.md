@@ -24,6 +24,9 @@ A lightweight reproducibility workflow for scientific repositories that manages 
 * 📁 **Hierarchical Checksums & Subdirectory Symlinks:** Supports upstream manifests stored at higher directory levels and provisions organized subfolders (e.g. `raw_data/Resources/`, `raw_data/sciATAC_fragment_files/`).  
 * 🛠️ **Upstream Checksum Generator (`generate_checksums.sh`):** Portable tool (macOS & Linux) to scan external storage directories and generate clean `checksums.tsv` files.  
 * 📦 **Batch Registration (`add-batch`):** Register entire cohorts or folders of files matching regex/glob patterns in one command.  
+* 🔄 **Scattered Symlinks (Repository-Relative):** Fully compatible with legacy projects where symlinks live in disparate project subdirectories instead of a single folder (set `SYMLINK_DIR=.` in `.env`).  
+* 🗄️ **Multi-Mount / Named Storage Roots:** Seamlessly reference raw data spanning multiple distinct physical hard drives or cluster mount points (e.g. `REF_ROOT:genomes/hg38.fa`).  
+* 🧭 **Automated Project Adoption (`adopt`):** Automatically scan existing project symlinks, audit `.gitignore` safety to prevent accidental Git leaks, match external storage mounts, and populate `local_pointers.tsv`.  
 * 📝 **In-Document Version Locking:** Full support for R Quarto (`sessioninfo::session_info()`), Python Quarto (`session_info.show()`), Python docstrings, and Bash pipeline headers.  
 * 🌐 **Environment Portability:** All paths are relative to `$DATA_ROOT` (works seamlessly across local macOS laptops, institutional clusters, and cloud mounts).  
 
@@ -81,7 +84,14 @@ DATA_ROOT=/mnt/scratch/bioinfo_core/raw_datasets
 
 ### 3. Add & Lock Raw Datasets
 ```bash
+# Add a single file from default DATA_ROOT
 ./scripts/data_tracker.sh add sample1.bam cohort1/bams/sample1.bam cohort1/checksums.md5
+
+# Add a file from a secondary named root (e.g. institutional reference volume)
+./scripts/data_tracker.sh add ref.fa REF_ROOT:genomes/hg38.fa REF_ROOT:genomes/checksums.tsv
+
+# Or auto-adopt existing project symlinks in one step:
+./scripts/data_tracker.sh adopt
 ```
 
 ### 4. Verify Integrity
@@ -108,7 +118,7 @@ Run the automated test suite to verify compatibility on your system:
 ```bash
 ./tests/test_data_tracker.sh
 ```
-All 22 tests covering bootstrap, multi-line parsing, Stale Checksum Guard, hash mismatches, updates, relocations, deep hashing, hierarchical manifests, and pre-commit hook enforcement will execute in an isolated sandbox.  
+All 34 tests covering bootstrap, multi-line parsing, Stale Checksum Guard, hash mismatches, updates, relocations, deep hashing, hierarchical manifests, scattered symlinks, named multi-mount roots, automated adoption, and pre-commit hook enforcement will execute in an isolated sandbox.  
 
 ## Credits  
 This project was designed and implemented with the help of AI (mostly Gemini, Flash 3.8)  

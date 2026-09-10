@@ -19,32 +19,43 @@ When the user wants to add or track a new sample:
 ./scripts/data_tracker.sh add <link_name> <relative_source_path> <relative_source_metadata_path>
 ```
 *Note*: The tool checks the Stale Checksum Guard before locking the hash. If the checksum file is older than the binary, notify the user that upstream checksums must be regenerated.
+*Multi-Mount*: For datasets spanning multiple drives, prefix the source path with the root variable name (e.g., `REF_ROOT:genomes/hg38.fa`).
 
-### 2. Routine Tier 1 Fast Verification
-Run to check that all files exist, checksums are fresh, and locked hashes match upstream metadata:
+### 2. Auto-Adopting Existing Project Symlinks
+When adopting the workflow on an existing project where symlinks already exist across project directories:
+```bash
+# Preview adoption without modifying local_pointers.tsv
+./scripts/data_tracker.sh adopt --dry-run
+
+# Run adoption, audit .gitignore safety, and auto-populate local_pointers.tsv
+./scripts/data_tracker.sh adopt
+```
+
+### 3. Routine Tier 1 Fast Verification
+Run to check that all files exist across all configured storage roots, checksums are fresh, and locked hashes match upstream metadata:
 ```bash
 ./scripts/data_tracker.sh verify
 ```
 
-### 3. Tier 2 Deep Cryptographic Audit
+### 4. Tier 2 Deep Cryptographic Audit
 When the user asks to "audit", "deep check", or verify prior to paper submission / cluster job launch:
 ```bash
 ./scripts/data_tracker.sh verify --deep
 ```
 
-### 4. Updating a Legitimate Change
+### 5. Updating a Legitimate Change
 If upstream data was legitimately re-sequenced or re-aligned:
 ```bash
 ./scripts/data_tracker.sh update <link_name>
 ```
 
-### 5. Relocating Storage Paths
+### 6. Relocating Storage Paths
 If external mounts or folders were reorganized (e.g. from `cohort_a/` to `archive/cohort_a/`):
 ```bash
 ./scripts/data_tracker.sh relocate <old_path_string> <new_path_string>
 ```
 
-### 6. Provisioning or Repairing Symlinks
+### 7. Provisioning or Repairing Symlinks
 When opening the project on a new machine or cluster node:
 ```bash
 ./scripts/data_tracker.sh link
