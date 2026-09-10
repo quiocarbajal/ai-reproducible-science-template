@@ -24,8 +24,14 @@ When the user wants to add or track a new sample:
 ### 2. Auto-Adopting Existing Project Symlinks
 When adopting the workflow on an existing project where symlinks already exist across project directories:
 ```bash
-# Preview adoption without modifying local_pointers.tsv
-./scripts/data_tracker.sh adopt --dry-run
+# Preview adoption with detailed categorization report
+./scripts/data_tracker.sh adopt --dry-run --report
+
+# List symlinks lacking upstream checksums
+./scripts/data_tracker.sh adopt --missing-checksums
+
+# List unignored symlinks and add them to .gitignore
+./scripts/data_tracker.sh adopt --unignored >> .gitignore
 
 # Run adoption, audit .gitignore safety, and auto-populate local_pointers.tsv
 ./scripts/data_tracker.sh adopt

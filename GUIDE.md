@@ -296,8 +296,17 @@ If adopting this framework on an already-started project where symlinks live in 
    ```
 3. Run the automated adoption scanner:
    ```bash
-   # Preview adoption without modifying local_pointers.tsv
-   ./scripts/data_tracker.sh adopt --dry-run
+   # Preview adoption with detailed categorization report
+   ./scripts/data_tracker.sh adopt --dry-run --report
+
+   # List only symlinks missing upstream checksums
+   ./scripts/data_tracker.sh adopt --missing-checksums
+
+   # List unique upstream directories needing checksum generation
+   ./scripts/data_tracker.sh adopt --missing-checksum-dirs
+
+   # List symlinks not protected by .gitignore and auto-append them
+   ./scripts/data_tracker.sh adopt --unignored >> .gitignore
 
    # Perform adoption, Git safety audit, and automatic manifest generation
    ./scripts/data_tracker.sh adopt
@@ -316,7 +325,12 @@ If adopting this framework on an already-started project where symlinks live in 
 | `./scripts/data_tracker.sh init` | Bootstrap directories, `.env`, and Git pre-commit hook |
 | `./scripts/data_tracker.sh add <link> <data> <meta>` | Lock dataset with Stale Guard & create symlink (`ROOT_NAME:` supported) |
 | `./scripts/data_tracker.sh add-batch <dest> <dir> <meta> [-p]` | Batch register files from upstream folder matching pattern |
-| `./scripts/data_tracker.sh adopt [--dry-run]` | Scan repo for existing symlinks, audit `.gitignore`, & auto-import |
+| `./scripts/data_tracker.sh adopt [--dry-run] [--report]` | Scan repo for existing symlinks, audit `.gitignore`, & auto-import |
+| `./scripts/data_tracker.sh adopt --missing-checksums` | List symlinks lacking upstream checksum manifests |
+| `./scripts/data_tracker.sh adopt --missing-checksum-dirs` | List unique upstream directories needing checksum generation |
+| `./scripts/data_tracker.sh adopt --unignored` | List symlinks not ignored by `.gitignore` |
+| `./scripts/data_tracker.sh adopt --unmatched` | List symlinks pointing outside active storage roots |
+| `./scripts/data_tracker.sh adopt --broken` | List broken / dangling symlinks |
 | `./scripts/generate_checksums.sh <dir> [opts]` | Generate clean upstream `checksums.tsv` (macOS & Linux compatible) |
 | `./scripts/data_tracker.sh verify` | Tier 1 Fast Handshake check across all configured roots (<1s) |
 | `./scripts/data_tracker.sh verify --deep` | Tier 2 Deep cryptographic verification across all storage roots |
@@ -324,7 +338,7 @@ If adopting this framework on an already-started project where symlinks live in 
 | `./scripts/data_tracker.sh relocate <old> <new>` | Batch rename paths in TSV & re-link |
 | `./scripts/data_tracker.sh link` | Provision / repair all symlinks across project |
 | `./scripts/data_tracker.sh status` | Display pointer table, root mounts, & symlink health |
-| `./tests/test_data_tracker.sh` | Run automated test suite (34 test assertions) |
+| `./tests/test_data_tracker.sh` | Run automated test suite (42 test assertions) |
 
 ---
 

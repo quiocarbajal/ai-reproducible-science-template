@@ -91,6 +91,7 @@ DATA_ROOT=/mnt/scratch/bioinfo_core/raw_datasets
 ./scripts/data_tracker.sh add ref.fa REF_ROOT:genomes/hg38.fa REF_ROOT:genomes/checksums.tsv
 
 # Or auto-adopt existing project symlinks in one step:
+./scripts/data_tracker.sh adopt --dry-run --report
 ./scripts/data_tracker.sh adopt
 ```
 
@@ -118,7 +119,7 @@ Run the automated test suite to verify compatibility on your system:
 ```bash
 ./tests/test_data_tracker.sh
 ```
-All 34 tests covering bootstrap, multi-line parsing, Stale Checksum Guard, hash mismatches, updates, relocations, deep hashing, hierarchical manifests, scattered symlinks, named multi-mount roots, automated adoption, and pre-commit hook enforcement will execute in an isolated sandbox.  
+All 42 tests covering bootstrap, multi-line parsing, Stale Checksum Guard, hash mismatches, updates, relocations, deep hashing, hierarchical manifests, scattered symlinks, named multi-mount roots, automated adoption, categorized error reporting, and pre-commit hook enforcement will execute in an isolated sandbox.  
 
 ## Credits  
 This project was designed and implemented with the help of AI (mostly Gemini, Flash 3.8)  

@@ -933,21 +933,55 @@ cmd_status() {
     echo ""
 }
 
-# Command: adopt [--dry-run]
+# Command: adopt [--dry-run] [--report] [filter flags]
 cmd_adopt() {
     local dry_run=0
+    local show_report=0
+    local filter_target=""
+
     for arg in "$@"; do
-        if [[ "$arg" == "--dry-run" || "$arg" == "-n" ]]; then
-            dry_run=1
-        fi
+        case "$arg" in
+            --dry-run|-n)
+                dry_run=1
+                ;;
+            --report|-r|--details)
+                show_report=1
+                ;;
+            --missing-checksums|--no-checksum)
+                filter_target="missing_checksums"
+                dry_run=1
+                ;;
+            --missing-checksum-dirs|--no-checksum-dirs)
+                filter_target="missing_checksum_dirs"
+                dry_run=1
+                ;;
+            --unignored)
+                filter_target="unignored"
+                dry_run=1
+                ;;
+            --unmatched)
+                filter_target="unmatched"
+                dry_run=1
+                ;;
+            --broken)
+                filter_target="broken"
+                dry_run=1
+                ;;
+            --already-tracked)
+                filter_target="already_tracked"
+                dry_run=1
+                ;;
+        esac
     done
 
     resolve_symlink_dir
     ensure_pointers_file
 
-    print_header "Scanning Project for Existing Symlinks (adopt)"
-    if [[ $dry_run -eq 1 ]]; then
-        log_warn "DRY RUN MODE: No changes will be written to ${POINTERS_FILE}"
+    if [[ -z "$filter_target" ]]; then
+        print_header "Scanning Project for Existing Symlinks (adopt)"
+        if [[ $dry_run -eq 1 ]]; then
+            log_warn "DRY RUN MODE: No changes will be written to ${POINTERS_FILE}"
+        fi
     fi
 
     # Check that at least one root is configured
@@ -964,14 +998,16 @@ cmd_adopt() {
         exit 1
     fi
 
-    printf "Configured Active Storage Roots:\n"
-    for r in "${all_roots[@]}"; do
-        printf "  %-12s %s\n" "$r:" "${!r}"
-    done
-    if [[ "$SYMLINK_DIR" == "$REPO_ROOT" ]]; then
-        printf "Symlinks Mode: Repository-Relative (Scattered Symlinks)\n\n"
-    else
-        printf "Symlinks Dir:  %s\n\n" "$SYMLINK_DIR"
+    if [[ -z "$filter_target" ]]; then
+        printf "Configured Active Storage Roots:\n"
+        for r in "${all_roots[@]}"; do
+            printf "  %-12s %s\n" "$r:" "${!r}"
+        done
+        if [[ "$SYMLINK_DIR" == "$REPO_ROOT" ]]; then
+            printf "Symlinks Mode: Repository-Relative (Scattered Symlinks)\n\n"
+        else
+            printf "Symlinks Dir:  %s\n\n" "$SYMLINK_DIR"
+        fi
     fi
 
     # Read existing pointers to avoid duplicate registration
@@ -990,6 +1026,14 @@ cmd_adopt() {
     local no_checksum_count=0
     local unignored_count=0
 
+    # Categorized arrays for reports and filtering
+    local unignored_list=()
+    local broken_list=()
+    local unmatched_list=()
+    local no_checksum_list=()
+    local stale_list=()
+    local already_tracked_list=()
+
     while IFS= read -r -d '' link_file; do
         local rel_link="${link_file#./}"
 
@@ -999,8 +1043,10 @@ cmd_adopt() {
         fi
 
         total_found=$((total_found + 1))
-        printf "%s\n" "------------------------------------------------------------"
-        printf "Found symlink: %s\n" "$rel_link"
+        if [[ -z "$filter_target" ]]; then
+            printf "%s\n" "------------------------------------------------------------"
+            printf "Found symlink: %s\n" "$rel_link"
+        fi
 
         # Determine link_name depending on SYMLINK_DIR mode
         local link_name="$rel_link"
@@ -1008,7 +1054,7 @@ cmd_adopt() {
             local rel_symlink_dir="${SYMLINK_DIR#"${REPO_ROOT}/"}"
             if [[ "$rel_link" == "${rel_symlink_dir}/"* ]]; then
                 link_name="${rel_link#"${rel_symlink_dir}/"}"
-            else
+            elif [[ -z "$filter_target" ]]; then
                 log_warn "Symlink is outside SYMLINK_DIR (${rel_symlink_dir}): ${rel_link}"
                 printf "  Recommendation: Set SYMLINK_DIR=. in .env to track scattered symlinks repository-wide.\n"
             fi
@@ -1025,17 +1071,23 @@ cmd_adopt() {
             done
         fi
         if [[ $already_tracked -eq 1 ]]; then
-            log_info "Already tracked in manifest: ${link_name}"
+            if [[ -z "$filter_target" ]]; then
+                log_info "Already tracked in manifest: ${link_name}"
+            fi
+            already_tracked_list+=("$link_name")
             already_tracked_count=$((already_tracked_count + 1))
             continue
         fi
 
         # Audit Gitignore safety
         if ! git -C "$REPO_ROOT" check-ignore -q "$rel_link" 2>/dev/null; then
-            log_warn "SECURITY WARNING: Symlink is NOT ignored by Git: ${rel_link}"
-            printf "  -> Recommendation: Add '%s' or its extension to .gitignore to avoid committing raw data symlinks!\n" "$rel_link" >&2
+            if [[ -z "$filter_target" ]]; then
+                log_warn "SECURITY WARNING: Symlink is NOT ignored by Git: ${rel_link}"
+                printf "  -> Recommendation: Add '%s' or its extension to .gitignore to avoid committing raw data symlinks!\n" "$rel_link" >&2
+            fi
+            unignored_list+=("$rel_link")
             unignored_count=$((unignored_count + 1))
-        else
+        elif [[ -z "$filter_target" ]]; then
             log_success "Git protection verified: ${rel_link} is properly gitignored."
         fi
 
@@ -1044,7 +1096,10 @@ cmd_adopt() {
         local raw_target
         raw_target="$(readlink "${REPO_ROOT}/${rel_link}" 2>/dev/null || true)"
         if [[ -z "$raw_target" ]]; then
-            log_error "Cannot read symlink: ${rel_link}"
+            if [[ -z "$filter_target" ]]; then
+                log_error "Cannot read symlink: ${rel_link}"
+            fi
+            broken_list+=("${rel_link}"$'\t'"[unreadable]")
             broken_count=$((broken_count + 1))
             continue
         fi
@@ -1056,7 +1111,10 @@ cmd_adopt() {
         fi
 
         if [[ ! -e "$abs_target" ]]; then
-            log_error "Broken symlink: ${rel_link} -> ${abs_target}"
+            if [[ -z "$filter_target" ]]; then
+                log_error "Broken symlink: ${rel_link} -> ${abs_target}"
+            fi
+            broken_list+=("${rel_link}"$'\t'"${abs_target}")
             broken_count=$((broken_count + 1))
             continue
         fi
@@ -1074,7 +1132,10 @@ cmd_adopt() {
         done
 
         if [[ -z "$matched_root" ]]; then
-            log_warn "Target does not fall under any active storage root: ${abs_target}"
+            if [[ -z "$filter_target" ]]; then
+                log_warn "Target does not fall under any active storage root: ${abs_target}"
+            fi
+            unmatched_list+=("${rel_link}"$'\t'"${abs_target}")
             unmatched_count=$((unmatched_count + 1))
             continue
         fi
@@ -1084,7 +1145,9 @@ cmd_adopt() {
             col_source_spec="${matched_root}:${rel_source}"
         fi
 
-        log_info "Matched root: ${matched_root} (${col_source_spec})"
+        if [[ -z "$filter_target" ]]; then
+            log_info "Matched root: ${matched_root} (${col_source_spec})"
+        fi
 
         # Search for upstream checksum file in target's directory and parent directories up to root base
         local target_dir
@@ -1114,8 +1177,11 @@ cmd_adopt() {
         done
 
         if [[ -z "$found_meta" ]]; then
-            log_warn "No upstream checksum found for ${rel_source} under ${root_base}"
-            printf "  Run './scripts/data_tracker.sh generate-checksums %s' to create one.\n" "$target_dir"
+            if [[ -z "$filter_target" ]]; then
+                log_warn "No upstream checksum found for ${rel_source} under ${root_base}"
+                printf "  Run './scripts/data_tracker.sh generate-checksums %s' to create one.\n" "$target_dir"
+            fi
+            no_checksum_list+=("${link_name}"$'\t'"${matched_root}"$'\t'"${rel_source}"$'\t'"${target_dir}")
             no_checksum_count=$((no_checksum_count + 1))
             continue
         fi
@@ -1129,7 +1195,10 @@ cmd_adopt() {
         local final_hash
         final_hash="$(extract_hash_from_checksum_file "$found_meta" "$rel_source" "$rel_meta")"
         if [[ -z "$final_hash" ]]; then
-            log_warn "Could not extract hash for ${rel_source} from ${found_meta}"
+            if [[ -z "$filter_target" ]]; then
+                log_warn "Could not extract hash for ${rel_source} from ${found_meta}"
+            fi
+            no_checksum_list+=("${link_name}"$'\t'"${matched_root}"$'\t'"${rel_source}"$'\t'"${target_dir}")
             no_checksum_count=$((no_checksum_count + 1))
             continue
         fi
@@ -1140,14 +1209,19 @@ cmd_adopt() {
         mtime_target=$(get_file_mtime "$abs_target")
         mtime_meta=$(get_file_mtime "$found_meta")
         if [[ "$mtime_target" -gt "$mtime_meta" ]]; then
-            log_warn "STALE CHECKSUM: Target file is newer than checksum manifest ${found_meta}!"
+            if [[ -z "$filter_target" ]]; then
+                log_warn "STALE CHECKSUM: Target file is newer than checksum manifest ${found_meta}!"
+            fi
+            stale_list+=("${link_name}"$'\t'"${found_meta}")
         fi
 
-        if [[ $dry_run -eq 0 ]]; then
+        if [[ $dry_run -eq 0 && -z "$filter_target" ]]; then
             printf "%s\t%s\t%s\t%s\n" "$link_name" "$col_source_spec" "$col_meta_spec" "$final_hash" >> "$POINTERS_FILE"
         fi
 
-        log_success "Adopted: ${link_name} -> ${col_source_spec} [${final_hash:0:16}...]"
+        if [[ -z "$filter_target" ]]; then
+            log_success "Adopted: ${link_name} -> ${col_source_spec} [${final_hash:0:16}...]"
+        fi
         adopted_count=$((adopted_count + 1))
     done < <(find . -type l \
         -not -path './.git/*' \
@@ -1158,6 +1232,72 @@ cmd_adopt() {
         -not -path './scratch/*' \
         -not -path './.test_tmp/*' \
         -print0)
+
+    # If in filter mode, output only the requested list and exit cleanly
+    if [[ -n "$filter_target" ]]; then
+        case "$filter_target" in
+            missing_checksums)
+                if [[ ${#no_checksum_list[@]} -gt 0 ]]; then
+                    for item in "${no_checksum_list[@]}"; do
+                        IFS=$'\t' read -r l_name l_root l_rel l_dir <<< "$item"
+                        printf "%s\n" "$l_name"
+                    done
+                fi
+                ;;
+            missing_checksum_dirs)
+                if [[ ${#no_checksum_list[@]} -gt 0 ]]; then
+                    local -a unique_dirs=()
+                    for item in "${no_checksum_list[@]}"; do
+                        IFS=$'\t' read -r l_name l_root l_rel l_dir <<< "$item"
+                        local dir_seen=0
+                        if [[ ${#unique_dirs[@]} -gt 0 ]]; then
+                            for ud in "${unique_dirs[@]}"; do
+                                if [[ "$ud" == "$l_dir" ]]; then
+                                    dir_seen=1
+                                    break
+                                fi
+                            done
+                        fi
+                        if [[ $dir_seen -eq 0 ]]; then
+                            unique_dirs+=("$l_dir")
+                            printf "%s\n" "$l_dir"
+                        fi
+                    done
+                fi
+                ;;
+            unignored)
+                if [[ ${#unignored_list[@]} -gt 0 ]]; then
+                    for item in "${unignored_list[@]}"; do
+                        printf "%s\n" "$item"
+                    done
+                fi
+                ;;
+            unmatched)
+                if [[ ${#unmatched_list[@]} -gt 0 ]]; then
+                    for item in "${unmatched_list[@]}"; do
+                        IFS=$'\t' read -r l_link l_target <<< "$item"
+                        printf "%s\t%s\n" "$l_link" "$l_target"
+                    done
+                fi
+                ;;
+            broken)
+                if [[ ${#broken_list[@]} -gt 0 ]]; then
+                    for item in "${broken_list[@]}"; do
+                        IFS=$'\t' read -r l_link l_target <<< "$item"
+                        printf "%s\t%s\n" "$l_link" "$l_target"
+                    done
+                fi
+                ;;
+            already_tracked)
+                if [[ ${#already_tracked_list[@]} -gt 0 ]]; then
+                    for item in "${already_tracked_list[@]}"; do
+                        printf "%s\n" "$item"
+                    done
+                fi
+                ;;
+        esac
+        return 0
+    fi
 
     print_header "Adoption Summary"
     printf "Total symlinks scanned:         %d\n" "$total_found"
@@ -1177,6 +1317,84 @@ cmd_adopt() {
     elif [[ $adopted_count -gt 0 ]]; then
         log_success "Updated ${POINTERS_FILE} successfully with adopted entries."
     fi
+
+    # Detailed Categorized Report
+    if [[ $show_report -eq 1 ]]; then
+        print_header "Detailed Adoption Report & Action Items"
+
+        if [[ ${#unignored_list[@]} -gt 0 ]]; then
+            printf "\n${YELLOW}[!] Unignored Symlinks (%d) - Risk of accidental Git commits:${NC}\n" "${#unignored_list[@]}"
+            for item in "${unignored_list[@]}"; do
+                printf "  • Symlink: %s\n" "$item"
+                printf "    Action:  echo \"%s\" >> .gitignore\n\n" "$item"
+            done
+            printf "  ${BOLD}Bulk Resolution:${NC} Run './scripts/data_tracker.sh adopt --unignored >> .gitignore'\n\n"
+        fi
+
+        if [[ ${#unmatched_list[@]} -gt 0 ]]; then
+            printf "\n${YELLOW}[?] Unmatched Storage Roots (%d) - Targets outside configured mounts:${NC}\n" "${#unmatched_list[@]}"
+            for item in "${unmatched_list[@]}"; do
+                IFS=$'\t' read -r l_link l_target <<< "$item"
+                printf "  • Symlink: %s\n" "$l_link"
+                printf "    Target:  %s\n" "$l_target"
+                printf "    Action:  Declare a named storage root in .env (e.g., <NAME>_ROOT=\"...\")\n\n"
+            done
+        fi
+
+        if [[ ${#no_checksum_list[@]} -gt 0 ]]; then
+            printf "\n${YELLOW}[-] Missing Upstream Checksums (%d):${NC}\n" "${#no_checksum_list[@]}"
+            local -a unique_dirs=()
+            for item in "${no_checksum_list[@]}"; do
+                IFS=$'\t' read -r l_name l_root l_rel l_dir <<< "$item"
+                printf "  • Symlink:   %s\n" "$l_name"
+                printf "    Source:    %s:%s\n" "$l_root" "$l_rel"
+                printf "    Directory: %s\n" "$l_dir"
+                printf "    Action:    ./scripts/data_tracker.sh generate-checksums \"%s\"\n\n" "$l_dir"
+                local dir_seen=0
+                if [[ ${#unique_dirs[@]} -gt 0 ]]; then
+                    for ud in "${unique_dirs[@]}"; do
+                        if [[ "$ud" == "$l_dir" ]]; then
+                            dir_seen=1
+                            break
+                        fi
+                    done
+                fi
+                if [[ $dir_seen -eq 0 ]]; then
+                    unique_dirs+=("$l_dir")
+                fi
+            done
+            printf "  ${BOLD}Bulk Resolution:${NC} Run generate-checksums for the missing directories:\n"
+            if [[ ${#unique_dirs[@]} -gt 0 ]]; then
+                for ud in "${unique_dirs[@]}"; do
+                    printf "    ./scripts/data_tracker.sh generate-checksums \"%s\"\n" "$ud"
+                done
+            fi
+            echo ""
+        fi
+
+        if [[ ${#broken_list[@]} -gt 0 ]]; then
+            printf "\n${RED}[x] Broken / Dangling Symlinks (%d):${NC}\n" "${#broken_list[@]}"
+            for item in "${broken_list[@]}"; do
+                IFS=$'\t' read -r l_link l_target <<< "$item"
+                printf "  • Symlink: %s\n" "$l_link"
+                printf "    Target:  %s (FILE NOT FOUND)\n\n" "$l_target"
+            done
+        fi
+
+        if [[ ${#stale_list[@]} -gt 0 ]]; then
+            printf "\n${YELLOW}[~] Stale Upstream Checksums (%d) - Binary is newer than checksum file:${NC}\n" "${#stale_list[@]}"
+            for item in "${stale_list[@]}"; do
+                IFS=$'\t' read -r l_name l_meta <<< "$item"
+                printf "  • Symlink:  %s\n" "$l_name"
+                printf "    Manifest: %s\n" "$l_meta"
+                printf "    Action:   Regenerate checksum manifest upstream.\n\n"
+            done
+        fi
+
+        echo ""
+    elif [[ $unignored_count -gt 0 || $unmatched_count -gt 0 || $no_checksum_count -gt 0 || $broken_count -gt 0 ]]; then
+        printf "\nTip: Run './scripts/data_tracker.sh adopt --report' to see itemized paths and suggested commands.\n"
+    fi
 }
 
 # Show help menu
@@ -1188,7 +1406,7 @@ Commands:
   init                                 Bootstrap tracking, directories, template configs & Git hook
   add <link> <rel_data> <rel_meta>     Add/lock a new file from storage with Stale Guard
   add-batch <dest> <dir> <meta> [-p]   Batch-add all files from an upstream folder matching pattern
-  adopt [--dry-run]                    Scan repo for existing symlinks, audit gitignore, & auto-import
+  adopt [opts]                         Scan repo for existing symlinks, audit gitignore, & auto-import
   verify [--deep]                      Verify integrity (Tier 1 fast check; --deep for Tier 2 crypto)
   update <link_name>                   Pull latest hash from upstream metadata if legitimately updated
   relocate <old_str> <new_str>         Batch-replace path substrings in local_pointers.tsv
@@ -1202,6 +1420,13 @@ Options:
   --deep                               Perform full cryptographic calculation during verification
   --data-root <path>                   Override DATA_ROOT for this invocation
   --dry-run, -n                        Preview adopt actions without modifying local_pointers.tsv
+  --report, -r, --details              Print detailed itemized breakdown of errors and action items
+  --missing-checksums                  Filter mode: Output only symlinks missing upstream checksums
+  --missing-checksum-dirs             Filter mode: Output unique directories needing checksum generation
+  --unignored                          Filter mode: Output only symlinks not ignored by Git (.gitignore)
+  --unmatched                          Filter mode: Output only symlinks outside storage roots
+  --broken                             Filter mode: Output only broken/dangling symlinks
+  --already-tracked                    Filter mode: Output only symlinks already in local_pointers.tsv
 
 Environment Configuration (.env):
   DATA_ROOT                            Primary external storage root directory
@@ -1217,7 +1442,10 @@ Examples:
   $(basename "$0") add sample1.bam bams/sample1.bam bams/md5sum.txt
   $(basename "$0") add ref.fa REF_ROOT:genomes/hg38.fa REF_ROOT:genomes/checksums.sha256
   $(basename "$0") adopt
-  $(basename "$0") adopt --dry-run
+  $(basename "$0") adopt --dry-run --report
+  $(basename "$0") adopt --missing-checksums
+  $(basename "$0") adopt --missing-checksum-dirs
+  $(basename "$0") adopt --unignored >> .gitignore
   $(basename "$0") verify
   $(basename "$0") verify --deep
   $(basename "$0") link

@@ -316,7 +316,60 @@ test_assert "local_pointers.tsv records adopted symlink with locked hash" $?
 test_assert "Tier 1 verify passes with newly adopted pointer" $?
 
 # ------------------------------------------------------------------------------
-# Test 15: Git Pre-Commit Hook Integration
+# Test 15: Adoption Reporting & Targeted Filtering Flags
+# ------------------------------------------------------------------------------
+# Create scenarios:
+# 1. Missing checksum: file without checksum manifest
+mkdir -p "${MOCK_ROOT}/unmanifested"
+echo "NO CHECKSUM DATA" > "${MOCK_ROOT}/unmanifested/no_meta.bam"
+mkdir -p "${PROJECT_ROOT}/experiments/test_report"
+ln -sfn "${MOCK_ROOT}/unmanifested/no_meta.bam" "${PROJECT_ROOT}/experiments/test_report/no_meta.bam"
+
+# 2. Unmatched storage root: file completely outside DATA_ROOT and REF_ROOT
+MOCK_OTHER_ROOT="${PROJECT_ROOT}/.test_tmp/other_outside_root"
+mkdir -p "${MOCK_OTHER_ROOT}"
+echo "OTHER ROOT DATA" > "${MOCK_OTHER_ROOT}/outside.bam"
+ln -sfn "${MOCK_OTHER_ROOT}/outside.bam" "${PROJECT_ROOT}/experiments/test_report/outside.bam"
+
+# 3. Broken symlink
+ln -sfn "/nonexistent/storage/path/broken.bam" "${PROJECT_ROOT}/experiments/test_report/broken.bam"
+
+# Test --missing-checksums filter
+MISSING_OUT=$("$TRACKER" adopt --missing-checksums)
+echo "$MISSING_OUT" | grep -q "experiments/test_report/no_meta.bam"
+test_assert "adopt --missing-checksums outputs symlinks lacking upstream manifests" $?
+
+# Test --missing-checksum-dirs filter
+MISSING_DIRS_OUT=$("$TRACKER" adopt --missing-checksum-dirs)
+echo "$MISSING_DIRS_OUT" | grep -q "${MOCK_ROOT}/unmanifested"
+test_assert "adopt --missing-checksum-dirs outputs unique directories needing checksums" $?
+
+# Test --unmatched filter
+UNMATCHED_OUT=$("$TRACKER" adopt --unmatched)
+echo "$UNMATCHED_OUT" | grep -q "experiments/test_report/outside.bam"
+test_assert "adopt --unmatched outputs symlinks outside active roots" $?
+
+# Test --broken filter
+BROKEN_OUT=$("$TRACKER" adopt --broken)
+echo "$BROKEN_OUT" | grep -q "experiments/test_report/broken.bam"
+test_assert "adopt --broken outputs dangling symlinks" $?
+
+# Test --report detailed breakdown
+REPORT_OUT=$("$TRACKER" adopt --dry-run --report 2>&1)
+echo "$REPORT_OUT" | grep -q "Detailed Adoption Report & Action Items"
+test_assert "adopt --report renders detailed itemized report banner" $?
+echo "$REPORT_OUT" | grep -q "Missing Upstream Checksums"
+test_assert "adopt --report categorizes missing checksums" $?
+echo "$REPORT_OUT" | grep -q "Unmatched Storage Roots"
+test_assert "adopt --report categorizes unmatched roots" $?
+echo "$REPORT_OUT" | grep -q "Broken / Dangling Symlinks"
+test_assert "adopt --report categorizes broken symlinks" $?
+
+# Cleanup test_report symlinks so they don't break subsequent verify
+rm -rf "${PROJECT_ROOT}/experiments/test_report"
+
+# ------------------------------------------------------------------------------
+# Test 16: Git Pre-Commit Hook Integration
 # ------------------------------------------------------------------------------
 # Pre-commit hook should pass right now
 bash "${PROJECT_ROOT}/.githooks/pre-commit" >/dev/null 2>&1
