@@ -300,6 +300,22 @@ fi
 export REF_ROOT="$MOCK_REF_ROOT"
 
 # ------------------------------------------------------------------------------
+# Test 14: Automated Project Adoption (adopt / scan)
+# ------------------------------------------------------------------------------
+# Create pre-existing scattered symlink manually
+mkdir -p "${PROJECT_ROOT}/experiments/pilot/inputs"
+ln -sfn "${MOCK_ROOT}/cohort_archive_2026/fastqs/sample1_R1.fastq.gz" "${PROJECT_ROOT}/experiments/pilot/inputs/pilot_R1.fastq.gz"
+
+"$TRACKER" adopt >/dev/null 2>&1
+test_assert "adopt command scans project and registers pre-existing symlinks" $?
+
+grep -q "experiments/pilot/inputs/pilot_R1.fastq.gz" "${PROJECT_ROOT}/local_pointers.tsv"
+test_assert "local_pointers.tsv records adopted symlink with locked hash" $?
+
+"$TRACKER" verify >/dev/null 2>&1
+test_assert "Tier 1 verify passes with newly adopted pointer" $?
+
+# ------------------------------------------------------------------------------
 # Test 15: Git Pre-Commit Hook Integration
 # ------------------------------------------------------------------------------
 # Pre-commit hook should pass right now

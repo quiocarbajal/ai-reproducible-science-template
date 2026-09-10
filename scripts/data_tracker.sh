@@ -933,6 +933,251 @@ cmd_status() {
     echo ""
 }
 
+# Command: adopt [--dry-run]
+cmd_adopt() {
+    local dry_run=0
+    for arg in "$@"; do
+        if [[ "$arg" == "--dry-run" || "$arg" == "-n" ]]; then
+            dry_run=1
+        fi
+    done
+
+    resolve_symlink_dir
+    ensure_pointers_file
+
+    print_header "Scanning Project for Existing Symlinks (adopt)"
+    if [[ $dry_run -eq 1 ]]; then
+        log_warn "DRY RUN MODE: No changes will be written to ${POINTERS_FILE}"
+    fi
+
+    # Check that at least one root is configured
+    local all_roots=()
+    for r in $(get_all_roots); do
+        if [[ -n "${!r:-}" && -d "${!r}" ]]; then
+            all_roots+=("$r")
+        fi
+    done
+
+    if [[ ${#all_roots[@]} -eq 0 ]]; then
+        log_error "No valid, mounted storage roots detected."
+        printf "  Please set DATA_ROOT (and any other *_ROOT) in ${REPO_ROOT}/.env\n" >&2
+        exit 1
+    fi
+
+    printf "Configured Active Storage Roots:\n"
+    for r in "${all_roots[@]}"; do
+        printf "  %-12s %s\n" "$r:" "${!r}"
+    done
+    if [[ "$SYMLINK_DIR" == "$REPO_ROOT" ]]; then
+        printf "Symlinks Mode: Repository-Relative (Scattered Symlinks)\n\n"
+    else
+        printf "Symlinks Dir:  %s\n\n" "$SYMLINK_DIR"
+    fi
+
+    # Read existing pointers to avoid duplicate registration
+    local existing_links=()
+    while IFS=$'\t' read -r col_link col_data col_meta col_hash || [[ -n "$col_link" ]]; do
+        if [[ "$col_link" != "link_name" && -n "$col_link" && ! "$col_link" =~ ^# ]]; then
+            existing_links+=("$col_link")
+        fi
+    done < "$POINTERS_FILE"
+
+    local total_found=0
+    local adopted_count=0
+    local already_tracked_count=0
+    local broken_count=0
+    local unmatched_count=0
+    local no_checksum_count=0
+    local unignored_count=0
+
+    while IFS= read -r -d '' link_file; do
+        local rel_link="${link_file#./}"
+
+        # Ignore internal tooling / scratch / venvs
+        if [[ "$rel_link" =~ ^(\.git|\.venv|venv|\.agents|scratch|\.test_tmp)/ ]]; then
+            continue
+        fi
+
+        total_found=$((total_found + 1))
+        printf "%s\n" "------------------------------------------------------------"
+        printf "Found symlink: %s\n" "$rel_link"
+
+        # Determine link_name depending on SYMLINK_DIR mode
+        local link_name="$rel_link"
+        if [[ "$SYMLINK_DIR" != "$REPO_ROOT" ]]; then
+            local rel_symlink_dir="${SYMLINK_DIR#"${REPO_ROOT}/"}"
+            if [[ "$rel_link" == "${rel_symlink_dir}/"* ]]; then
+                link_name="${rel_link#"${rel_symlink_dir}/"}"
+            else
+                log_warn "Symlink is outside SYMLINK_DIR (${rel_symlink_dir}): ${rel_link}"
+                printf "  Recommendation: Set SYMLINK_DIR=. in .env to track scattered symlinks repository-wide.\n"
+            fi
+        fi
+
+        # Check if already tracked
+        local already_tracked=0
+        if [[ ${#existing_links[@]} -gt 0 ]]; then
+            for el in "${existing_links[@]}"; do
+                if [[ "$el" == "$link_name" ]]; then
+                    already_tracked=1
+                    break
+                fi
+            done
+        fi
+        if [[ $already_tracked -eq 1 ]]; then
+            log_info "Already tracked in manifest: ${link_name}"
+            already_tracked_count=$((already_tracked_count + 1))
+            continue
+        fi
+
+        # Audit Gitignore safety
+        if ! git -C "$REPO_ROOT" check-ignore -q "$rel_link" 2>/dev/null; then
+            log_warn "SECURITY WARNING: Symlink is NOT ignored by Git: ${rel_link}"
+            printf "  -> Recommendation: Add '%s' or its extension to .gitignore to avoid committing raw data symlinks!\n" "$rel_link" >&2
+            unignored_count=$((unignored_count + 1))
+        else
+            log_success "Git protection verified: ${rel_link} is properly gitignored."
+        fi
+
+        # Resolve real target
+        local abs_target=""
+        local raw_target
+        raw_target="$(readlink "${REPO_ROOT}/${rel_link}" 2>/dev/null || true)"
+        if [[ -z "$raw_target" ]]; then
+            log_error "Cannot read symlink: ${rel_link}"
+            broken_count=$((broken_count + 1))
+            continue
+        fi
+
+        if [[ "$raw_target" = /* ]]; then
+            abs_target="$(cd "$(dirname "$raw_target")" 2>/dev/null && pwd -P)/$(basename "$raw_target")"
+        else
+            abs_target="$(cd "$(dirname "${REPO_ROOT}/${rel_link}")" 2>/dev/null && cd "$(dirname "$raw_target")" 2>/dev/null && pwd -P)/$(basename "$raw_target")"
+        fi
+
+        if [[ ! -e "$abs_target" ]]; then
+            log_error "Broken symlink: ${rel_link} -> ${abs_target}"
+            broken_count=$((broken_count + 1))
+            continue
+        fi
+
+        # Match against configured roots
+        local matched_root=""
+        local rel_source=""
+        for r in "${all_roots[@]}"; do
+            local r_path="${!r%/}"
+            if [[ "$abs_target" == "$r_path"/* ]]; then
+                matched_root="$r"
+                rel_source="${abs_target#"${r_path}/"}"
+                break
+            fi
+        done
+
+        if [[ -z "$matched_root" ]]; then
+            log_warn "Target does not fall under any active storage root: ${abs_target}"
+            unmatched_count=$((unmatched_count + 1))
+            continue
+        fi
+
+        local col_source_spec="$rel_source"
+        if [[ "$matched_root" != "DATA_ROOT" ]]; then
+            col_source_spec="${matched_root}:${rel_source}"
+        fi
+
+        log_info "Matched root: ${matched_root} (${col_source_spec})"
+
+        # Search for upstream checksum file in target's directory and parent directories up to root base
+        local target_dir
+        target_dir="$(dirname "$abs_target")"
+        local root_base="${!matched_root%/}"
+        local search_dir="$target_dir"
+        local found_meta=""
+
+        while [[ "$search_dir" == "$root_base"* ]]; do
+            for candidate in "checksums.tsv" "checksums.md5" "checksums.sha256" "MD5SUMS" "SHA256SUMS" "$(basename "$abs_target").md5" "$(basename "$abs_target").sha256"; do
+                if [[ -f "${search_dir}/${candidate}" ]]; then
+                    local test_clean_rel="${abs_target#"${root_base}/"}"
+                    local test_clean_meta="${search_dir}/${candidate}"
+                    test_clean_meta="${test_clean_meta#"${root_base}/"}"
+                    local test_hash
+                    test_hash="$(extract_hash_from_checksum_file "${search_dir}/${candidate}" "$test_clean_rel" "$test_clean_meta")"
+                    if [[ -n "$test_hash" ]]; then
+                        found_meta="${search_dir}/${candidate}"
+                        break 2
+                    fi
+                fi
+            done
+            if [[ "$search_dir" == "$root_base" ]]; then
+                break
+            fi
+            search_dir="$(dirname "$search_dir")"
+        done
+
+        if [[ -z "$found_meta" ]]; then
+            log_warn "No upstream checksum found for ${rel_source} under ${root_base}"
+            printf "  Run './scripts/data_tracker.sh generate-checksums %s' to create one.\n" "$target_dir"
+            no_checksum_count=$((no_checksum_count + 1))
+            continue
+        fi
+
+        local rel_meta="${found_meta#"${root_base}/"}"
+        local col_meta_spec="$rel_meta"
+        if [[ "$matched_root" != "DATA_ROOT" ]]; then
+            col_meta_spec="${matched_root}:${rel_meta}"
+        fi
+
+        local final_hash
+        final_hash="$(extract_hash_from_checksum_file "$found_meta" "$rel_source" "$rel_meta")"
+        if [[ -z "$final_hash" ]]; then
+            log_warn "Could not extract hash for ${rel_source} from ${found_meta}"
+            no_checksum_count=$((no_checksum_count + 1))
+            continue
+        fi
+
+        # Check Stale Checksum Guard
+        local mtime_target
+        local mtime_meta
+        mtime_target=$(get_file_mtime "$abs_target")
+        mtime_meta=$(get_file_mtime "$found_meta")
+        if [[ "$mtime_target" -gt "$mtime_meta" ]]; then
+            log_warn "STALE CHECKSUM: Target file is newer than checksum manifest ${found_meta}!"
+        fi
+
+        if [[ $dry_run -eq 0 ]]; then
+            printf "%s\t%s\t%s\t%s\n" "$link_name" "$col_source_spec" "$col_meta_spec" "$final_hash" >> "$POINTERS_FILE"
+        fi
+
+        log_success "Adopted: ${link_name} -> ${col_source_spec} [${final_hash:0:16}...]"
+        adopted_count=$((adopted_count + 1))
+    done < <(find . -type l \
+        -not -path './.git/*' \
+        -not -path './.git' \
+        -not -path './.venv/*' \
+        -not -path './venv/*' \
+        -not -path './.agents/*' \
+        -not -path './scratch/*' \
+        -not -path './.test_tmp/*' \
+        -print0)
+
+    print_header "Adoption Summary"
+    printf "Total symlinks scanned:         %d\n" "$total_found"
+    printf "Successfully adopted:           %d\n" "$adopted_count"
+    printf "Already tracked in manifest:    %d\n" "$already_tracked_count"
+    printf "Broken / dangling symlinks:     %d\n" "$broken_count"
+    printf "Unmatched storage roots:        %d\n" "$unmatched_count"
+    printf "Missing upstream checksums:     %d\n" "$no_checksum_count"
+    printf "Unignored by Git (WARNINGS):    %d\n" "$unignored_count"
+    printf "%s\n" "------------------------------------------------------------"
+
+    if [[ $unignored_count -gt 0 ]]; then
+        log_warn "There are symlinks NOT ignored by .gitignore! Please review warnings above."
+    fi
+    if [[ $dry_run -eq 1 ]]; then
+        log_info "Dry run complete. Run without --dry-run to commit entries to local_pointers.tsv."
+    elif [[ $adopted_count -gt 0 ]]; then
+        log_success "Updated ${POINTERS_FILE} successfully with adopted entries."
+    fi
+}
 
 # Show help menu
 usage() {
@@ -943,6 +1188,7 @@ Commands:
   init                                 Bootstrap tracking, directories, template configs & Git hook
   add <link> <rel_data> <rel_meta>     Add/lock a new file from storage with Stale Guard
   add-batch <dest> <dir> <meta> [-p]   Batch-add all files from an upstream folder matching pattern
+  adopt [--dry-run]                    Scan repo for existing symlinks, audit gitignore, & auto-import
   verify [--deep]                      Verify integrity (Tier 1 fast check; --deep for Tier 2 crypto)
   update <link_name>                   Pull latest hash from upstream metadata if legitimately updated
   relocate <old_str> <new_str>         Batch-replace path substrings in local_pointers.tsv
@@ -955,6 +1201,7 @@ Commands:
 Options:
   --deep                               Perform full cryptographic calculation during verification
   --data-root <path>                   Override DATA_ROOT for this invocation
+  --dry-run, -n                        Preview adopt actions without modifying local_pointers.tsv
 
 Environment Configuration (.env):
   DATA_ROOT                            Primary external storage root directory
