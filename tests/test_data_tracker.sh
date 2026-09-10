@@ -41,6 +41,7 @@ cleanup() {
         cp "$BACKUP_ENV" "${PROJECT_ROOT}/.env" 2>/dev/null || true
     fi
     rm -rf "${PROJECT_ROOT}/.test_tmp"
+    rm -rf "${PROJECT_ROOT}/analyses" "${PROJECT_ROOT}/references" "${PROJECT_ROOT}/experiments" "${PROJECT_ROOT}/raw_data" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -250,7 +251,56 @@ test_assert "Batch symlinks raw_data/batch_links/b1 and b2 exist and point to da
 test_assert "Tier 1 Fast Handshake passes with hierarchical TSV and batch pointers" $?
 
 # ------------------------------------------------------------------------------
-# Test 10: Git Pre-Commit Hook Integration
+# Test 12: Scattered Symlinks (Repository-Relative with SYMLINK_DIR=.)
+# ------------------------------------------------------------------------------
+export SYMLINK_DIR="."
+"$TRACKER" add "analyses/01_qc/inputs/scattered_sample.bam" "cohort_archive_2026/bams/sample1.bam" "cohort_archive_2026/checksums.md5" >/dev/null 2>&1
+test_assert "Scattered pointer added with repository-relative path" $?
+
+test -L "${PROJECT_ROOT}/analyses/01_qc/inputs/scattered_sample.bam" && test -e "${PROJECT_ROOT}/analyses/01_qc/inputs/scattered_sample.bam"
+test_assert "Scattered symlink created in analyses/01_qc/inputs/ and points to data" $?
+
+"$TRACKER" verify >/dev/null 2>&1
+test_assert "Tier 1 Fast Handshake passes with scattered symlinks" $?
+
+"$TRACKER" status >/dev/null 2>&1
+test_assert "Status command runs and inspects scattered symlinks cleanly" $?
+
+# ------------------------------------------------------------------------------
+# Test 13: Multi-Mount Named Roots Architecture (REF_ROOT)
+# ------------------------------------------------------------------------------
+MOCK_REF_ROOT="${PROJECT_ROOT}/.test_tmp/mock_ref_root"
+mkdir -p "${MOCK_REF_ROOT}/genomes"
+echo "MOCK HG38 FASTA CONTENT" > "${MOCK_REF_ROOT}/genomes/hg38.fa"
+HASH_HG38=$(md5 -q "${MOCK_REF_ROOT}/genomes/hg38.fa" 2>/dev/null || md5sum "${MOCK_REF_ROOT}/genomes/hg38.fa" | awk '{print $1}')
+sleep 1
+printf "genomes/hg38.fa\t%s\n" "$HASH_HG38" > "${MOCK_REF_ROOT}/genomes/checksums.tsv"
+
+export REF_ROOT="$MOCK_REF_ROOT"
+"$TRACKER" add "references/hg38.fa" "REF_ROOT:genomes/hg38.fa" "REF_ROOT:genomes/checksums.tsv" >/dev/null 2>&1
+test_assert "Add pointer using named root syntax (REF_ROOT:...)" $?
+
+test -L "${PROJECT_ROOT}/references/hg38.fa" && test -e "${PROJECT_ROOT}/references/hg38.fa"
+test_assert "Symlink references/hg38.fa created and targets secondary mount" $?
+
+"$TRACKER" verify >/dev/null 2>&1
+test_assert "Tier 1 Handshake verifies across both DATA_ROOT and REF_ROOT" $?
+
+"$TRACKER" verify --deep >/dev/null 2>&1
+test_assert "Tier 2 Deep Verification passes across multiple storage roots" $?
+
+# Test that unsetting REF_ROOT causes verify to fail
+STATUS_UNMOUNTED=0
+REF_ROOT="/nonexistent/unmounted/path" "$TRACKER" verify >/dev/null 2>&1 || STATUS_UNMOUNTED=$?
+if [[ "$STATUS_UNMOUNTED" -ne 0 ]]; then
+    test_assert "Verify fails when a configured secondary storage root is unmounted" 0
+else
+    test_assert "Verify fails when a configured secondary storage root is unmounted" 1
+fi
+export REF_ROOT="$MOCK_REF_ROOT"
+
+# ------------------------------------------------------------------------------
+# Test 15: Git Pre-Commit Hook Integration
 # ------------------------------------------------------------------------------
 # Pre-commit hook should pass right now
 bash "${PROJECT_ROOT}/.githooks/pre-commit" >/dev/null 2>&1

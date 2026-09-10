@@ -16,7 +16,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 POINTERS_FILE="${REPO_ROOT}/local_pointers.tsv"
-SYMLINK_DIR="${REPO_ROOT}/raw_data"
 
 # Colors for terminal output
 RED='\033[0;31m'
@@ -66,6 +65,10 @@ print_header() {
     printf "%s\n" "------------------------------------------------------------"
 }
 
+# ------------------------------------------------------------------------------
+# Environment & Path Resolution Helpers
+# ------------------------------------------------------------------------------
+
 # Load environment configuration from .env if present (environment takes precedence)
 load_env() {
     if [[ -f "${REPO_ROOT}/.env" ]]; then
@@ -79,6 +82,89 @@ load_env() {
                 fi
             fi
         done < "${REPO_ROOT}/.env"
+    fi
+}
+
+# Resolve SYMLINK_DIR: defaults to raw_data; '.' or empty means repository root (scattered symlinks)
+resolve_symlink_dir() {
+    load_env
+    local dir="${SYMLINK_DIR:-}"
+    if [[ -z "$dir" ]]; then
+        SYMLINK_DIR="${REPO_ROOT}/raw_data"
+    elif [[ "$dir" == "." ]]; then
+        SYMLINK_DIR="${REPO_ROOT}"
+    elif [[ "$dir" = /* ]]; then
+        SYMLINK_DIR="$dir"
+    else
+        SYMLINK_DIR="${REPO_ROOT}/${dir}"
+    fi
+}
+
+resolve_symlink_dir
+
+# Extract root variable name from a source path specification (defaults to DATA_ROOT)
+get_root_var_from_spec() {
+    local spec="$1"
+    if [[ "$spec" =~ ^([A-Za-z_][A-Za-z0-9_]*):(.*)$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+    else
+        echo "DATA_ROOT"
+    fi
+}
+
+# Extract clean relative path from a source path specification
+get_rel_path_from_spec() {
+    local spec="$1"
+    if [[ "$spec" =~ ^([A-Za-z_][A-Za-z0-9_]*):(.*)$ ]]; then
+        echo "${BASH_REMATCH[2]}"
+    else
+        echo "$spec"
+    fi
+}
+
+# Resolve a path spec to an absolute path on external storage, verifying root exists
+resolve_source_path() {
+    local spec="$1"
+    local root_var
+    local rel_path
+    root_var="$(get_root_var_from_spec "$spec")"
+    rel_path="$(get_rel_path_from_spec "$spec")"
+
+    load_env
+    local root_dir="${!root_var:-}"
+    if [[ -z "$root_dir" ]]; then
+        log_error "Root environment variable '${root_var}' is not set (required for '${spec}')."
+        printf "  Please configure ${root_var} in ${REPO_ROOT}/.env or export ${root_var}=/path/to/storage\n" >&2
+        exit 1
+    fi
+
+    if [[ ! -d "$root_dir" ]]; then
+        log_error "Root directory '${root_var}' does not exist or is not mounted: ${root_dir}"
+        exit 1
+    fi
+
+    local clean_rel="${rel_path#/}"
+    local clean_root="${root_dir%/}"
+    echo "${clean_root}/${clean_rel}"
+}
+
+# List all configured active storage roots from environment / .env
+get_all_roots() {
+    load_env
+    local roots=()
+    if [[ -n "${DATA_ROOT:-}" ]]; then
+        roots+=("DATA_ROOT")
+    fi
+    while IFS='=' read -r key val || [[ -n "$key" ]]; do
+        key="$(echo "$key" | tr -d '[:space:]')"
+        if [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*_ROOT$ && "$key" != "DATA_ROOT" && "$key" != "REPO_ROOT" && "$key" != "PROJECT_ROOT" ]]; then
+            if [[ -n "${!key:-}" ]]; then
+                roots+=("$key")
+            fi
+        fi
+    done < <(env)
+    if [[ ${#roots[@]} -gt 0 ]]; then
+        printf "%s\n" "${roots[@]}" | sort -u
     fi
 }
 
@@ -272,10 +358,15 @@ ensure_pointers_file() {
 # Command: init
 cmd_init() {
     print_header "Bootstrapping Project Data-Tracking"
+    resolve_symlink_dir
 
-    # 1. Create symlink directory
-    mkdir -p "$SYMLINK_DIR"
-    log_success "Provisioned local symlink directory: ${SYMLINK_DIR}"
+    # 1. Create symlink directory if not REPO_ROOT
+    if [[ "$SYMLINK_DIR" != "$REPO_ROOT" ]]; then
+        mkdir -p "$SYMLINK_DIR"
+        log_success "Provisioned local symlink directory: ${SYMLINK_DIR}"
+    else
+        log_success "Using repository-relative symlink mode (SYMLINK_DIR=.)"
+    fi
 
     # 2. Initialize pointers file
     ensure_pointers_file
@@ -311,12 +402,11 @@ cmd_install_hook() {
     if git -C "$REPO_ROOT" config core.hooksPath .githooks 2>/dev/null; then
         chmod +x "$hook_src" 2>/dev/null || true
         log_success "Configured Git core.hooksPath to .githooks"
-    else
-        # Fallback to copying hook into .git/hooks/
-        mkdir -p "${git_dir}/hooks"
-        cp "$hook_src" "${git_dir}/hooks/pre-commit"
-        chmod +x "${git_dir}/hooks/pre-commit"
+    elif mkdir -p "${git_dir}/hooks" 2>/dev/null && cp "$hook_src" "${git_dir}/hooks/pre-commit" 2>/dev/null; then
+        chmod +x "${git_dir}/hooks/pre-commit" 2>/dev/null || true
         log_success "Installed pre-commit hook into .git/hooks/pre-commit"
+    else
+        log_warn "Could not configure Git hook (restricted .git permissions). Ensure core.hooksPath is set to .githooks."
     fi
 }
 
@@ -331,11 +421,18 @@ cmd_add() {
         exit 1
     fi
 
-    require_data_root
+    resolve_symlink_dir
     ensure_pointers_file
 
-    local abs_data="${DATA_ROOT}/${rel_data}"
-    local abs_meta="${DATA_ROOT}/${rel_meta}"
+    local abs_data
+    local abs_meta
+    abs_data="$(resolve_source_path "$rel_data")"
+    abs_meta="$(resolve_source_path "$rel_meta")"
+
+    local clean_data
+    local clean_meta
+    clean_data="$(get_rel_path_from_spec "$rel_data")"
+    clean_meta="$(get_rel_path_from_spec "$rel_meta")"
 
     log_info "Adding pointer: ${link_name} -> ${rel_data}"
 
@@ -368,10 +465,10 @@ cmd_add() {
 
     # Extract hash
     local extracted_hash
-    extracted_hash=$(extract_hash_from_checksum_file "$abs_meta" "$rel_data" "$rel_meta")
+    extracted_hash=$(extract_hash_from_checksum_file "$abs_meta" "$clean_data" "$clean_meta")
 
     if [[ -z "$extracted_hash" ]]; then
-        log_error "Failed to parse hash for '${rel_data}' from upstream metadata: $abs_meta"
+        log_error "Failed to parse hash for '${clean_data}' from upstream metadata: $abs_meta"
         exit 1
     fi
 
@@ -401,11 +498,12 @@ cmd_add() {
     mv "$tmp_file" "$POINTERS_FILE"
 
     # Provision symlink (supporting nested subdirectories like Resources/ or sciATAC/)
-    mkdir -p "$(dirname "${SYMLINK_DIR}/${link_name}")"
-    ln -sfn "$abs_data" "${SYMLINK_DIR}/${link_name}"
+    local link_target="${SYMLINK_DIR}/${link_name}"
+    mkdir -p "$(dirname "$link_target")"
+    ln -sfn "$abs_data" "$link_target"
 
     log_success "Locked hash: ${extracted_hash}"
-    log_success "Provisioned symlink: ${SYMLINK_DIR}/${link_name} -> ${abs_data}"
+    log_success "Provisioned symlink: ${link_target} -> ${abs_data}"
     log_success "Saved pointer to ${POINTERS_FILE}"
 }
 
@@ -434,16 +532,26 @@ cmd_add_batch() {
         esac
     done
 
-    require_data_root
-    local abs_source_dir="${DATA_ROOT}/${rel_source_dir}"
+    resolve_symlink_dir
+    local abs_source_dir
+    abs_source_dir="$(resolve_source_path "$rel_source_dir")"
 
     if [[ ! -d "$abs_source_dir" ]]; then
         log_error "Source directory does not exist: $abs_source_dir"
         exit 1
     fi
 
+    local root_data
+    root_data="$(get_root_var_from_spec "$rel_source_dir")"
+    local clean_source_dir
+    clean_source_dir="$(get_rel_path_from_spec "$rel_source_dir")"
+
     print_header "Batch Adding Pointers from ${rel_source_dir}"
-    log_info "Destination directory: raw_data/${dest_subdir}"
+    if [[ "$SYMLINK_DIR" == "$REPO_ROOT" ]]; then
+        log_info "Destination directory: ${dest_subdir}"
+    else
+        log_info "Destination directory: ${SYMLINK_DIR#"${REPO_ROOT}/"}/${dest_subdir}"
+    fi
     log_info "Checksum metadata:     ${rel_checksum_file}"
     [[ -n "$pattern" ]] && log_info "Filter pattern:        ${pattern}"
 
@@ -452,8 +560,18 @@ cmd_add_batch() {
         [[ -z "$f" ]] && continue
         local fname
         fname="$(basename "$f")"
-        local link_name="${dest_subdir}/${fname}"
-        local rel_data_path="${rel_source_dir}/${fname}"
+        local link_name
+        if [[ -z "$dest_subdir" || "$dest_subdir" == "." ]]; then
+            link_name="$fname"
+        else
+            link_name="${dest_subdir}/${fname}"
+        fi
+        local rel_data_path
+        if [[ "$root_data" == "DATA_ROOT" ]]; then
+            rel_data_path="${clean_source_dir}/${fname}"
+        else
+            rel_data_path="${root_data}:${clean_source_dir}/${fname}"
+        fi
 
         cmd_add "$link_name" "$rel_data_path" "$rel_checksum_file"
         count=$((count + 1))
@@ -465,7 +583,11 @@ cmd_add_batch() {
         fi
     )
 
-    printf "\n${GREEN}[SUCCESS]${NC} Batch added %d pointers into raw_data/%s\n\n" "$count" "$dest_subdir"
+    if [[ "$SYMLINK_DIR" == "$REPO_ROOT" ]]; then
+        printf "\n${GREEN}[SUCCESS]${NC} Batch added %d pointers into %s\n\n" "$count" "$dest_subdir"
+    else
+        printf "\n${GREEN}[SUCCESS]${NC} Batch added %d pointers into %s/%s\n\n" "$count" "${SYMLINK_DIR#"${REPO_ROOT}/"}" "$dest_subdir"
+    fi
 }
 
 # Command: update <link_name>
@@ -550,11 +672,15 @@ cmd_relocate() {
 
 # Command: link (Provision all symlinks)
 cmd_link() {
-    require_data_root
+    resolve_symlink_dir
     ensure_pointers_file
 
-    print_header "Provisioning Symlinks in ${SYMLINK_DIR}"
-    mkdir -p "$SYMLINK_DIR"
+    if [[ "$SYMLINK_DIR" == "$REPO_ROOT" ]]; then
+        print_header "Provisioning Symlinks (Repository-Relative Mode)"
+    else
+        print_header "Provisioning Symlinks in ${SYMLINK_DIR}"
+        mkdir -p "$SYMLINK_DIR"
+    fi
 
     local total=0
     local created=0
@@ -567,7 +693,18 @@ cmd_link() {
         fi
 
         total=$((total + 1))
-        local abs_data="${DATA_ROOT}/${col_data}"
+        local root_data
+        root_data="$(get_root_var_from_spec "$col_data")"
+        local root_data_val="${!root_data:-}"
+
+        if [[ -z "$root_data_val" || ! -d "$root_data_val" ]]; then
+            log_error "Target root variable '$root_data' is unset or unmounted (${root_data_val:-unset}) for $col_link"
+            failed=$((failed + 1))
+            continue
+        fi
+
+        local abs_data
+        abs_data="$(resolve_source_path "$col_data")"
         local link_target="${SYMLINK_DIR}/${col_link}"
 
         if [[ ! -f "$abs_data" ]]; then
@@ -578,7 +715,7 @@ cmd_link() {
 
         mkdir -p "$(dirname "$link_target")"
         ln -sfn "$abs_data" "$link_target"
-        printf "  ✓ %-25s -> %s\n" "$col_link" "$abs_data"
+        printf "  ✓ %-35s -> %s\n" "$col_link" "$abs_data"
         created=$((created + 1))
     done < "$POINTERS_FILE"
 
@@ -597,7 +734,7 @@ cmd_verify() {
         fi
     done
 
-    require_data_root
+    resolve_symlink_dir
     ensure_pointers_file
 
     if [[ $deep_mode -eq 1 ]]; then
@@ -605,7 +742,18 @@ cmd_verify() {
     else
         print_header "Executing Tier 1 Fast Handshake Verification"
     fi
-    printf "DATA_ROOT: %s\n\n" "$DATA_ROOT"
+
+    local configured_roots=()
+    for r in $(get_all_roots); do
+        if [[ -n "${!r:-}" ]]; then
+            configured_roots+=("$r")
+            printf "%-12s %s\n" "$r:" "${!r}"
+        fi
+    done
+    if [[ ${#configured_roots[@]} -eq 0 ]]; then
+        printf "%-12s %s\n" "DATA_ROOT:" "${DATA_ROOT:-[NOT SET]}"
+    fi
+    echo ""
 
     local total=0
     local passed=0
@@ -618,11 +766,37 @@ cmd_verify() {
         fi
 
         total=$((total + 1))
-        local abs_data="${DATA_ROOT}/${col_data}"
-        local abs_meta="${DATA_ROOT}/${col_meta}"
-        local has_error=0
+        local root_data
+        local root_meta
+        root_data="$(get_root_var_from_spec "$col_data")"
+        root_meta="$(get_root_var_from_spec "$col_meta")"
+
+        local root_data_val="${!root_data:-}"
+        local root_meta_val="${!root_meta:-}"
 
         printf "[%s]\n" "$col_link"
+
+        if [[ -z "$root_data_val" || ! -d "$root_data_val" ]]; then
+            log_error "  Missing storage root '$root_data' (${root_data_val:-unset or unmounted})"
+            failed=$((failed + 1))
+            continue
+        fi
+
+        if [[ -z "$root_meta_val" || ! -d "$root_meta_val" ]]; then
+            log_error "  Missing metadata root '$root_meta' (${root_meta_val:-unset or unmounted})"
+            failed=$((failed + 1))
+            continue
+        fi
+
+        local abs_data
+        local abs_meta
+        abs_data="$(resolve_source_path "$col_data")"
+        abs_meta="$(resolve_source_path "$col_meta")"
+
+        local clean_data
+        local clean_meta
+        clean_data="$(get_rel_path_from_spec "$col_data")"
+        clean_meta="$(get_rel_path_from_spec "$col_meta")"
 
         # 1. Existence checks
         if [[ ! -f "$abs_data" ]]; then
@@ -653,10 +827,10 @@ cmd_verify() {
 
         # 3. Hash Match against upstream metadata
         local upstream_hash
-        upstream_hash=$(extract_hash_from_checksum_file "$abs_meta" "$col_data" "$col_meta")
+        upstream_hash=$(extract_hash_from_checksum_file "$abs_meta" "$clean_data" "$clean_meta")
 
         if [[ -z "$upstream_hash" ]]; then
-            log_error "  Could not parse hash for '${col_data}' from ${abs_meta}"
+            log_error "  Could not parse hash for '${clean_data}' from ${abs_meta}"
             failed=$((failed + 1))
             continue
         fi
@@ -709,16 +883,35 @@ cmd_verify() {
 
 # Command: status
 cmd_status() {
-    load_env
+    resolve_symlink_dir
     ensure_pointers_file
     print_header "Scientific Data-Tracking Status"
 
-    printf "Project Root: %s\n" "$REPO_ROOT"
-    printf "DATA_ROOT:    %s\n" "${DATA_ROOT:-[NOT SET]}"
-    printf "Symlinks Dir: %s\n\n" "$SYMLINK_DIR"
+    printf "Project Root:  %s\n" "$REPO_ROOT"
+    if [[ "$SYMLINK_DIR" == "$REPO_ROOT" ]]; then
+        printf "Symlinks Mode: Repository-Relative (Scattered Symlinks)\n"
+    else
+        printf "Symlinks Dir:  %s\n" "$SYMLINK_DIR"
+    fi
 
-    printf "%-25s %-35s %-12s %s\n" "LINK NAME" "RELATIVE SOURCE" "LOCAL LINK" "LOCKED HASH"
-    printf "%-25s %-35s %-12s %s\n" "-------------------------" "-----------------------------------" "------------" "--------------------------------"
+    printf "\nConfigured Storage Roots:\n"
+    local found_roots=0
+    for r in $(get_all_roots); do
+        local rval="${!r:-}"
+        local mount_status="[OK]"
+        if [[ ! -d "$rval" ]]; then
+            mount_status="[UNMOUNTED / MISSING]"
+        fi
+        printf "  %-12s %s %s\n" "$r:" "$rval" "$mount_status"
+        found_roots=$((found_roots + 1))
+    done
+    if [[ $found_roots -eq 0 ]]; then
+        printf "  %-12s %s\n" "DATA_ROOT:" "${DATA_ROOT:-[NOT SET]}"
+    fi
+    echo ""
+
+    printf "%-35s %-35s %-12s %s\n" "LINK NAME" "SOURCE SPEC" "LOCAL LINK" "LOCKED HASH"
+    printf "%-35s %-35s %-12s %s\n" "-----------------------------------" "-----------------------------------" "------------" "--------------------------------"
 
     while IFS=$'\t' read -r col_link col_data col_meta col_hash || [[ -n "$col_link" ]]; do
         if [[ "$col_link" == "link_name" || -z "$col_link" || "$col_link" =~ ^# ]]; then
@@ -726,18 +919,20 @@ cmd_status() {
         fi
 
         local symlink_status="MISSING"
-        if [[ -L "${SYMLINK_DIR}/${col_link}" ]]; then
-            if [[ -e "${SYMLINK_DIR}/${col_link}" ]]; then
+        local link_target="${SYMLINK_DIR}/${col_link}"
+        if [[ -L "$link_target" ]]; then
+            if [[ -e "$link_target" ]]; then
                 symlink_status="OK"
             else
                 symlink_status="BROKEN"
             fi
         fi
 
-        printf "%-25s %-35s %-12s %s\n" "$col_link" "$col_data" "$symlink_status" "$col_hash"
+        printf "%-35s %-35s %-12s %s\n" "$col_link" "$col_data" "$symlink_status" "$col_hash"
     done < "$POINTERS_FILE"
     echo ""
 }
+
 
 # Show help menu
 usage() {
@@ -746,12 +941,12 @@ Usage: $(basename "$0") <command> [arguments]
 
 Commands:
   init                                 Bootstrap tracking, directories, template configs & Git hook
-  add <link> <rel_data> <rel_meta>     Add/lock a new file from \$DATA_ROOT with Stale Guard
+  add <link> <rel_data> <rel_meta>     Add/lock a new file from storage with Stale Guard
   add-batch <dest> <dir> <meta> [-p]   Batch-add all files from an upstream folder matching pattern
   verify [--deep]                      Verify integrity (Tier 1 fast check; --deep for Tier 2 crypto)
   update <link_name>                   Pull latest hash from upstream metadata if legitimately updated
   relocate <old_str> <new_str>         Batch-replace path substrings in local_pointers.tsv
-  link                                 Provision/refresh all symbolic links in raw_data/
+  link                                 Provision/refresh all symbolic links
   status                               Display current pointer manifest and symlink health
   generate-checksums <dir> [opts]      Generate upstream checksums.tsv for an external data directory
   install-hook                         Configure Git pre-commit verification hook
@@ -761,15 +956,25 @@ Options:
   --deep                               Perform full cryptographic calculation during verification
   --data-root <path>                   Override DATA_ROOT for this invocation
 
+Environment Configuration (.env):
+  DATA_ROOT                            Primary external storage root directory
+  <NAME>_ROOT                          Named secondary storage roots (e.g., REF_ROOT=/data/ref)
+  SYMLINK_DIR                          Local link directory (default: raw_data; set '.' for scattered)
+
+Named Roots Syntax:
+  In local_pointers.tsv, prefix paths with ROOT_NAME: (e.g. REF_ROOT:genomes/hg38.fa).
+  Paths without a prefix automatically default to DATA_ROOT.
+
 Examples:
   $(basename "$0") init
   $(basename "$0") add sample1.bam bams/sample1.bam bams/md5sum.txt
-  $(basename "$0") add-batch sciATAC_files cohort1/fragments cohort1/checksums.tsv -p "*.tsv.gz"
-  $(basename "$0") generate-checksums /path/to/upstream_study -p "*.bam"
+  $(basename "$0") add ref.fa REF_ROOT:genomes/hg38.fa REF_ROOT:genomes/checksums.sha256
+  $(basename "$0") adopt
+  $(basename "$0") adopt --dry-run
   $(basename "$0") verify
   $(basename "$0") verify --deep
-  $(basename "$0") update sample1.bam
-  $(basename "$0") relocate bams/ bams_2026/
+  $(basename "$0") link
+  $(basename "$0") status
 
 EOF
 }
@@ -815,6 +1020,9 @@ case "$COMMAND" in
         ;;
     add-batch)
         cmd_add_batch "$@"
+        ;;
+    adopt|scan)
+        cmd_adopt "$@"
         ;;
     generate-checksums)
         "${SCRIPT_DIR}/generate_checksums.sh" "$@"

@@ -3,13 +3,14 @@
 # Tab-separated values (TSV) mapping local symlinks to external datasets.
 #
 # Columns:
-# 1. link_name: Filename provisioned inside raw_data/
-# 2. relative_source_path: Path to binary relative to $DATA_ROOT
-# 3. relative_source_metadata_path: Path to checksum file relative to $DATA_ROOT
+# 1. link_name: Path provisioned inside raw_data/ OR repo-relative path if SYMLINK_DIR=.
+# 2. relative_source_path: Path relative to $DATA_ROOT (or ROOT_NAME:path for secondary mounts)
+# 3. relative_source_metadata_path: Path to checksum file relative to storage root
 # 4. locked_hash: The cryptographic hash (MD5/SHA256) recorded from upstream
 # ==============================================================================
 link_name	relative_source_path	relative_source_metadata_path	locked_hash
 sample_A_R1.fastq.gz	runs/2026-03-run01/sample_A_R1.fastq.gz	runs/2026-03-run01/checksums.md5	098f6bcd4621d373cade4e832627b4f6
 sample_A_R2.fastq.gz	runs/2026-03-run01/sample_A_R2.fastq.gz	runs/2026-03-run01/checksums.md5	ad0234829205b9033196ba818f7a872b
-reference_GRCh38.fa.gz	references/GRCh38/GRCh38.fa.gz	references/GRCh38/sha256sum.txt	ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
-aligned_tumor.bam	cohort_b/bams/aligned_tumor.bam	cohort_b/bams/source_checksums.txt	5d41402abc4b2a76b9719d911017c592
+references/GRCh38.fa.gz	REF_ROOT:GRCh38/GRCh38.fa.gz	REF_ROOT:GRCh38/sha256sum.txt	ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+analyses/01_qc/inputs/aligned_tumor.bam	cohort_b/bams/aligned_tumor.bam	cohort_b/bams/source_checksums.txt	5d41402abc4b2a76b9719d911017c592
+
