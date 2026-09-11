@@ -13,13 +13,21 @@ and verification checks in this repository.
 
 ## Operational Procedures
 
-### 1. Adding a New Dataset
-When the user wants to add or track a new sample:
+### 1. Adding Datasets
+When adding or tracking datasets:
 ```bash
+# Single dataset:
 ./scripts/data_tracker.sh add <link_name> <relative_source_path> <relative_source_metadata_path>
+
+# Batch registration (shallow):
+./scripts/data_tracker.sh add-batch <dest_subdir> <rel_source_dir> <rel_checksum_file> [-p "*.bam"]
+
+# Batch registration (recursive directory tree with real folders & file symlinks):
+./scripts/data_tracker.sh add-batch <dest_subdir> <rel_source_dir> <rel_checksum_file> -r [-p "*.bw"]
 ```
 *Note*: The tool checks the Stale Checksum Guard before locking the hash. If the checksum file is older than the binary, notify the user that upstream checksums must be regenerated.
 *Multi-Mount*: For datasets spanning multiple drives, prefix the source path with the root variable name (e.g., `REF_ROOT:genomes/hg38.fa`).
+*Directory Symlink Policy*: Never symlink directories. Use `add-batch -r` so intermediate directories are real physical folders (`mkdir -p`) and leaf files are tracked symlinks.
 
 ### 2. Auto-Adopting Existing Project Symlinks
 When adopting the workflow on an existing project where symlinks already exist across project directories:
@@ -30,6 +38,9 @@ When adopting the workflow on an existing project where symlinks already exist a
 # List symlinks lacking upstream checksums
 ./scripts/data_tracker.sh adopt --missing-checksums
 
+# List symlinks pointing to directories (must convert to real folders via add-batch -r)
+./scripts/data_tracker.sh adopt --directory-symlinks
+
 # List unignored symlinks and add them to .gitignore
 ./scripts/data_tracker.sh adopt --unignored >> .gitignore
 
@@ -37,7 +48,14 @@ When adopting the workflow on an existing project where symlinks already exist a
 ./scripts/data_tracker.sh adopt
 ```
 
-### 3. Routine Tier 1 Fast Verification
+### 3. Viewing Command Help
+Display rich documentation and examples for any command:
+```bash
+./scripts/data_tracker.sh help <command>
+./scripts/data_tracker.sh <command> --help
+```
+
+### 4. Routine Tier 1 Fast Verification
 Run to check that all files exist across all configured storage roots, checksums are fresh, and locked hashes match upstream metadata:
 ```bash
 ./scripts/data_tracker.sh verify

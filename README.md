@@ -23,10 +23,11 @@ A lightweight reproducibility workflow for scientific repositories that manages 
 * 🔍 **Tier 2 Deep Verification (`--deep`):** Computes full cryptographic hashes across raw datasets on demand (e.g. before cluster submission or publication).  
 * 📁 **Hierarchical Checksums & Subdirectory Symlinks:** Supports upstream manifests stored at higher directory levels and provisions organized subfolders (e.g. `raw_data/Resources/`, `raw_data/sciATAC_fragment_files/`).  
 * 🛠️ **Upstream Checksum Generator (`generate_checksums.sh`):** Portable tool (macOS & Linux) to scan external storage directories and generate clean `checksums.tsv` files.  
-* 📦 **Batch Registration (`add-batch`):** Register entire cohorts or folders of files matching regex/glob patterns in one command.  
+* 📦 **Batch Registration (`add-batch`):** Register entire cohorts or folders of files matching regex/glob patterns in one command, with `-r` / `--recursive` mode to replicate nested folder trees as real physical directories while tracking leaf files.  
 * 🔄 **Scattered Symlinks (Repository-Relative):** Fully compatible with legacy projects where symlinks live in disparate project subdirectories instead of a single folder (set `SYMLINK_DIR=.` in `.env`).  
 * 🗄️ **Multi-Mount / Named Storage Roots:** Seamlessly reference raw data spanning multiple distinct physical hard drives or cluster mount points (e.g. `REF_ROOT:genomes/hg38.fa`).  
-* 🧭 **Automated Project Adoption (`adopt`):** Automatically scan existing project symlinks, audit `.gitignore` safety to prevent accidental Git leaks, match external storage mounts, and populate `local_pointers.tsv`.  
+* 🧭 **Automated Project Adoption (`adopt`):** Automatically scan existing project symlinks, audit `.gitignore` safety to prevent accidental Git leaks, detect directory symlinks, match external storage mounts, and populate `local_pointers.tsv`.  
+* 📖 **Command-Specific Help Menus:** Built-in rich help and usage examples for every command (`data_tracker.sh help <cmd>` or `<cmd> --help`).  
 * 📝 **In-Document Version Locking:** Full support for R Quarto (`sessioninfo::session_info()`), Python Quarto (`session_info.show()`), Python docstrings, and Bash pipeline headers.  
 * 🌐 **Environment Portability:** All paths are relative to `$DATA_ROOT` (works seamlessly across local macOS laptops, institutional clusters, and cloud mounts).  
 
@@ -58,7 +59,7 @@ A lightweight reproducibility workflow for scientific repositories that manages 
 │   ├── data_tracker.sh       <- Portable data-tracking CLI tool
 │   └── generate_checksums.sh <- Portable upstream checksum & manifest generator (Mac & Linux)
 ├── tests/
-│   └── test_data_tracker.sh  <- Automated verification test suite (22 tests)
+│   └── test_data_tracker.sh  <- Automated verification test suite (54 test assertions)
 ├── GUIDE.md                  <- Comprehensive project adoption handbook
 └── README.md                 <- Project overview & quickstart
 ```
@@ -119,7 +120,7 @@ Run the automated test suite to verify compatibility on your system:
 ```bash
 ./tests/test_data_tracker.sh
 ```
-All 42 tests covering bootstrap, multi-line parsing, Stale Checksum Guard, hash mismatches, updates, relocations, deep hashing, hierarchical manifests, scattered symlinks, named multi-mount roots, automated adoption, categorized error reporting, and pre-commit hook enforcement will execute in an isolated sandbox.  
+All 54 tests covering bootstrap, multi-line parsing, Stale Checksum Guard, hash mismatches, updates, relocations, deep hashing, hierarchical manifests, batch addition (shallow and recursive), scattered symlinks, named multi-mount roots, automated adoption, directory symlink detection, per-command help menus, categorized error reporting, and pre-commit hook enforcement will execute in an isolated sandbox.  
 
 ## Credits  
 This project was designed and implemented with the help of AI (mostly Gemini, Flash 3.8)  

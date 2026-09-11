@@ -278,6 +278,23 @@ To register an entire folder of files into a categorized subdirectory:
     -p "*_fragments.tsv.gz"
 ```
 
+#### Replicating Directory Trees with `-r` (`--recursive`)
+If your upstream dataset contains nested subdirectories (e.g. `study_peaks/bco_1/.../*.bw`), you should **never symlink the parent directory itself**. In scientific data tracking, symlinking directories prevents cryptographic auditing because manifests hash files, not directories, and directory symlinks allow untracked mutations.
+
+Use `-r` / `--recursive` to replicate the folder structure:
+```bash
+./scripts/data_tracker.sh add-batch \
+    "Bigwigs" \
+    "study_peaks" \
+    "study_peaks/checksums.tsv" \
+    -r \
+    -p "*.bw"
+```
+This ensures:
+1. All intermediate folders (`Bigwigs/bco_1/...`) are created as **real physical local directories** (`mkdir -p`).
+2. Only the leaf files inside them are tracked symlinks.
+3. Every individual file pointer is verified and locked in `local_pointers.tsv`.
+
 ### Recipe 8: Interactive R / Quarto Ingestion
 If you prefer managing symlinks in R (modernizing `00_Symlinks.Rmd`), open and customize:  
 👉 **[`examples/00_setup_data_symlinks.qmd`](examples/00_setup_data_symlinks.qmd)**  
@@ -305,6 +322,9 @@ If adopting this framework on an already-started project where symlinks live in 
    # List unique upstream directories needing checksum generation
    ./scripts/data_tracker.sh adopt --missing-checksum-dirs
 
+   # List symlinks that point to directories (must be converted to real dirs via add-batch -r)
+   ./scripts/data_tracker.sh adopt --directory-symlinks
+
    # List symlinks not protected by .gitignore and auto-append them
    ./scripts/data_tracker.sh adopt --unignored >> .gitignore
 
@@ -324,10 +344,11 @@ If adopting this framework on an already-started project where symlinks live in 
 | :--- | :--- |
 | `./scripts/data_tracker.sh init` | Bootstrap directories, `.env`, and Git pre-commit hook |
 | `./scripts/data_tracker.sh add <link> <data> <meta>` | Lock dataset with Stale Guard & create symlink (`ROOT_NAME:` supported) |
-| `./scripts/data_tracker.sh add-batch <dest> <dir> <meta> [-p]` | Batch register files from upstream folder matching pattern |
+| `./scripts/data_tracker.sh add-batch <dest> <dir> <meta> [-p] [-r]` | Batch register files from upstream folder (shallow or `-r` recursive tree) |
 | `./scripts/data_tracker.sh adopt [--dry-run] [--report]` | Scan repo for existing symlinks, audit `.gitignore`, & auto-import |
 | `./scripts/data_tracker.sh adopt --missing-checksums` | List symlinks lacking upstream checksum manifests |
 | `./scripts/data_tracker.sh adopt --missing-checksum-dirs` | List unique upstream directories needing checksum generation |
+| `./scripts/data_tracker.sh adopt --directory-symlinks` | List symlinks pointing to directories (untrackable as directories) |
 | `./scripts/data_tracker.sh adopt --unignored` | List symlinks not ignored by `.gitignore` |
 | `./scripts/data_tracker.sh adopt --unmatched` | List symlinks pointing outside active storage roots |
 | `./scripts/data_tracker.sh adopt --broken` | List broken / dangling symlinks |
@@ -338,7 +359,8 @@ If adopting this framework on an already-started project where symlinks live in 
 | `./scripts/data_tracker.sh relocate <old> <new>` | Batch rename paths in TSV & re-link |
 | `./scripts/data_tracker.sh link` | Provision / repair all symlinks across project |
 | `./scripts/data_tracker.sh status` | Display pointer table, root mounts, & symlink health |
-| `./tests/test_data_tracker.sh` | Run automated test suite (42 test assertions) |
+| `./scripts/data_tracker.sh help [cmd]` or `<cmd> --help` | Display command-specific help documentation and examples |
+| `./tests/test_data_tracker.sh` | Run automated test suite (54 test assertions) |
 
 ---
 

@@ -65,6 +65,43 @@ print_header() {
     printf "%s\n" "------------------------------------------------------------"
 }
 
+# Check if a filename or path is an OS artifact, editor swap, cloud sync metadata, or manifest
+is_system_or_metadata_file() {
+    local filepath="$1"
+    local filename
+    filename="$(basename "$filepath")"
+    local file_lower
+    file_lower="$(to_lower "$filename")"
+
+    # 1. Any hidden file or AppleDouble (e.g. .DS_Store, ._*, .git, .dropbox)
+    if [[ "$filename" == .* || "$filename" == ._* ]]; then
+        return 0
+    fi
+
+    # 2. Windows OS artifacts
+    case "$file_lower" in
+        thumbs.db|desktop.ini|ehthumbs.db)
+            return 0
+            ;;
+    esac
+
+    # 3. Editor swap and temporary/backup files
+    case "$filename" in
+        *~|*.swp|*.swo|*.tmp|*.temp|*.bak|*.old|*.orig)
+            return 0
+            ;;
+    esac
+
+    # 4. Checksum manifests and hash files themselves
+    case "$file_lower" in
+        checksums.tsv|checksums.md5|checksums.sha256|md5sums|sha256sums|*.md5|*.sha256|*.md5sum|*.sha256sum)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
 # ------------------------------------------------------------------------------
 # Environment & Path Resolution Helpers
 # ------------------------------------------------------------------------------
@@ -120,6 +157,37 @@ get_rel_path_from_spec() {
     else
         echo "$spec"
     fi
+}
+
+# Normalize an input path: if user passes an absolute path starting with an active root,
+# automatically convert it into the relative storage spec (e.g. DATA_ROOT:... or rel_path)
+normalize_to_spec() {
+    local input_path="$1"
+    load_env
+    if [[ "$input_path" = /* ]]; then
+        for r in $(get_all_roots); do
+            local r_path="${!r%/}"
+            if [[ -n "$r_path" ]]; then
+                if [[ "$input_path" == "$r_path"/* ]]; then
+                    local rel="${input_path#"${r_path}/"}"
+                    if [[ "$r" == "DATA_ROOT" ]]; then
+                        echo "$rel"
+                    else
+                        echo "${r}:${rel}"
+                    fi
+                    return 0
+                elif [[ "$input_path" == "$r_path" ]]; then
+                    if [[ "$r" == "DATA_ROOT" ]]; then
+                        echo "."
+                    else
+                        echo "${r}:."
+                    fi
+                    return 0
+                fi
+            fi
+        done
+    fi
+    echo "$input_path"
 }
 
 # Resolve a path spec to an absolute path on external storage, verifying root exists
@@ -421,6 +489,15 @@ cmd_add() {
         exit 1
     fi
 
+    rel_data="$(normalize_to_spec "$rel_data")"
+    rel_meta="$(normalize_to_spec "$rel_meta")"
+
+    # Ignore system files, OS artifacts, and metadata manifests
+    if is_system_or_metadata_file "$link_name" || is_system_or_metadata_file "$rel_data"; then
+        log_warn "Ignoring system/metadata file: ${rel_data}"
+        return 0
+    fi
+
     resolve_symlink_dir
     ensure_pointers_file
 
@@ -507,30 +584,41 @@ cmd_add() {
     log_success "Saved pointer to ${POINTERS_FILE}"
 }
 
-# Command: add-batch <dest_subdir> <rel_source_dir> <rel_checksum_file> [--pattern <glob>]
+# Command: add-batch <dest_subdir> <rel_source_dir> <rel_checksum_file> [-r] [--pattern <glob>]
 cmd_add_batch() {
-    local dest_subdir="${1:-}"
-    local rel_source_dir="${2:-}"
-    local rel_checksum_file="${3:-}"
-
-    if [[ -z "$dest_subdir" || -z "$rel_source_dir" || -z "$rel_checksum_file" ]]; then
-        log_error "Usage: $0 add-batch <dest_subdir> <rel_source_dir> <rel_checksum_file> [--pattern <glob>]"
-        exit 1
-    fi
-
-    shift 3 || true
+    local positional=()
     local pattern=""
+    local recursive=0
+
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -p|--pattern)
                 pattern="$2"
                 shift 2
                 ;;
+            -r|--recursive)
+                recursive=1
+                shift
+                ;;
             *)
+                positional+=("$1")
                 shift
                 ;;
         esac
     done
+
+    if [[ ${#positional[@]} -lt 3 ]]; then
+        log_error "Usage: $0 add-batch <dest_subdir> <rel_source_dir> <rel_checksum_file> [-r] [--pattern <glob>]"
+        printf "Run '$0 help add-batch' for detailed options and examples.\n" >&2
+        exit 1
+    fi
+
+    local dest_subdir="${positional[0]}"
+    local rel_source_dir="${positional[1]}"
+    local rel_checksum_file="${positional[2]}"
+
+    rel_source_dir="$(normalize_to_spec "$rel_source_dir")"
+    rel_checksum_file="$(normalize_to_spec "$rel_checksum_file")"
 
     resolve_symlink_dir
     local abs_source_dir
@@ -554,32 +642,55 @@ cmd_add_batch() {
     fi
     log_info "Checksum metadata:     ${rel_checksum_file}"
     [[ -n "$pattern" ]] && log_info "Filter pattern:        ${pattern}"
+    [[ $recursive -eq 1 ]] && log_info "Recursive mode:        Enabled (recreating real directories locally)"
 
     local count=0
     while IFS= read -r f; do
         [[ -z "$f" ]] && continue
-        local fname
-        fname="$(basename "$f")"
+        if is_system_or_metadata_file "$f"; then
+            continue
+        fi
+        local subpath
+        if [[ $recursive -eq 1 ]]; then
+            subpath="${f#"${abs_source_dir}/"}"
+        else
+            subpath="$(basename "$f")"
+        fi
+
+        # Skip any file inside a hidden subdirectory (e.g. .cache/file.bw)
+        if [[ "$subpath" =~ (^|/)\.[^/] ]]; then
+            continue
+        fi
+
         local link_name
         if [[ -z "$dest_subdir" || "$dest_subdir" == "." ]]; then
-            link_name="$fname"
+            link_name="$subpath"
         else
-            link_name="${dest_subdir}/${fname}"
+            link_name="${dest_subdir}/${subpath}"
         fi
+
         local rel_data_path
         if [[ "$root_data" == "DATA_ROOT" ]]; then
-            rel_data_path="${clean_source_dir}/${fname}"
+            rel_data_path="${clean_source_dir}/${subpath}"
         else
-            rel_data_path="${root_data}:${clean_source_dir}/${fname}"
+            rel_data_path="${root_data}:${clean_source_dir}/${subpath}"
         fi
 
         cmd_add "$link_name" "$rel_data_path" "$rel_checksum_file"
         count=$((count + 1))
     done < <(
-        if [[ -n "$pattern" ]]; then
-            find "$abs_source_dir" -maxdepth 1 -type f -name "$pattern" | sort
+        if [[ $recursive -eq 1 ]]; then
+            if [[ -n "$pattern" ]]; then
+                find "$abs_source_dir" -type f -name "$pattern" | sort
+            else
+                find "$abs_source_dir" -type f | sort
+            fi
         else
-            find "$abs_source_dir" -maxdepth 1 -type f | sort
+            if [[ -n "$pattern" ]]; then
+                find "$abs_source_dir" -maxdepth 1 -type f -name "$pattern" | sort
+            else
+                find "$abs_source_dir" -maxdepth 1 -type f | sort
+            fi
         fi
     )
 
@@ -971,6 +1082,10 @@ cmd_adopt() {
                 filter_target="already_tracked"
                 dry_run=1
                 ;;
+            --directory-symlinks|--dir-symlinks)
+                filter_target="directory_symlinks"
+                dry_run=1
+                ;;
         esac
     done
 
@@ -1025,6 +1140,7 @@ cmd_adopt() {
     local unmatched_count=0
     local no_checksum_count=0
     local unignored_count=0
+    local dir_symlink_count=0
 
     # Categorized arrays for reports and filtering
     local unignored_list=()
@@ -1033,12 +1149,13 @@ cmd_adopt() {
     local no_checksum_list=()
     local stale_list=()
     local already_tracked_list=()
+    local dir_symlink_list=()
 
     while IFS= read -r -d '' link_file; do
         local rel_link="${link_file#./}"
 
-        # Ignore internal tooling / scratch / venvs
-        if [[ "$rel_link" =~ ^(\.git|\.venv|venv|\.agents|scratch|\.test_tmp)/ ]]; then
+        # Ignore internal tooling / scratch / venvs / system metadata files
+        if [[ "$rel_link" =~ ^(\.git|\.venv|venv|\.agents|scratch|\.test_tmp)/ ]] || is_system_or_metadata_file "$rel_link"; then
             continue
         fi
 
@@ -1116,6 +1233,40 @@ cmd_adopt() {
             fi
             broken_list+=("${rel_link}"$'\t'"${abs_target}")
             broken_count=$((broken_count + 1))
+            continue
+        fi
+
+        # Check if target is a directory (directory symlinks cannot be cryptographically tracked)
+        if [[ -d "$abs_target" ]]; then
+            # Match against configured roots if possible for suggested remediation
+            local dir_matched_root=""
+            local dir_rel_source=""
+            for r in "${all_roots[@]}"; do
+                local r_path="${!r%/}"
+                if [[ "$abs_target" == "$r_path"/* ]]; then
+                    dir_matched_root="$r"
+                    dir_rel_source="${abs_target#"${r_path}/"}"
+                    break
+                fi
+            done
+            local dir_source_spec="$dir_rel_source"
+            if [[ -n "$dir_matched_root" && "$dir_matched_root" != "DATA_ROOT" ]]; then
+                dir_source_spec="${dir_matched_root}:${dir_rel_source}"
+            fi
+
+            if [[ -z "$filter_target" ]]; then
+                log_warn "DIRECTORY SYMLINK: ${rel_link} points to a directory (${abs_target})"
+                printf "  Directory symlinks cannot be cryptographically tracked (directories lack file checksums).\n" >&2
+                printf "  Remediation: Convert to real local directories with tracked file symlinks via:\n" >&2
+                printf "    rm \"%s\"\n" "$rel_link" >&2
+                if [[ -n "$dir_source_spec" ]]; then
+                    printf "    ./scripts/data_tracker.sh add-batch \"%s\" \"%s\" \"<rel_checksum_manifest>\" -r\n" "$link_name" "$dir_source_spec" >&2
+                else
+                    printf "    ./scripts/data_tracker.sh add-batch \"%s\" \"<rel_source_dir>\" \"<rel_checksum_manifest>\" -r\n" "$link_name" >&2
+                fi
+            fi
+            dir_symlink_list+=("${rel_link}"$'\t'"${abs_target}"$'\t'"${dir_matched_root}"$'\t'"${dir_source_spec}")
+            dir_symlink_count=$((dir_symlink_count + 1))
             continue
         fi
 
@@ -1295,6 +1446,14 @@ cmd_adopt() {
                     done
                 fi
                 ;;
+            directory_symlinks)
+                if [[ ${#dir_symlink_list[@]} -gt 0 ]]; then
+                    for item in "${dir_symlink_list[@]}"; do
+                        IFS=$'\t' read -r l_link l_target l_root l_rel <<< "$item"
+                        printf "%s\t%s\n" "$l_link" "$l_target"
+                    done
+                fi
+                ;;
         esac
         return 0
     fi
@@ -1303,12 +1462,16 @@ cmd_adopt() {
     printf "Total symlinks scanned:         %d\n" "$total_found"
     printf "Successfully adopted:           %d\n" "$adopted_count"
     printf "Already tracked in manifest:    %d\n" "$already_tracked_count"
+    printf "Directory symlinks (untracked): %d\n" "$dir_symlink_count"
     printf "Broken / dangling symlinks:     %d\n" "$broken_count"
     printf "Unmatched storage roots:        %d\n" "$unmatched_count"
     printf "Missing upstream checksums:     %d\n" "$no_checksum_count"
     printf "Unignored by Git (WARNINGS):    %d\n" "$unignored_count"
     printf "%s\n" "------------------------------------------------------------"
 
+    if [[ $dir_symlink_count -gt 0 ]]; then
+        log_warn "Directory symlinks detected! Convert them to real local directories with 'add-batch -r'."
+    fi
     if [[ $unignored_count -gt 0 ]]; then
         log_warn "There are symlinks NOT ignored by .gitignore! Please review warnings above."
     fi
@@ -1321,6 +1484,24 @@ cmd_adopt() {
     # Detailed Categorized Report
     if [[ $show_report -eq 1 ]]; then
         print_header "Detailed Adoption Report & Action Items"
+
+        if [[ ${#dir_symlink_list[@]} -gt 0 ]]; then
+            printf "\n${YELLOW}[!] Directory Symlinks (%d) - Cannot be cryptographically tracked:${NC}\n" "${#dir_symlink_list[@]}"
+            for item in "${dir_symlink_list[@]}"; do
+                IFS=$'\t' read -r l_link l_target l_root l_rel <<< "$item"
+                printf "  • Symlink:     %s\n" "$l_link"
+                printf "    Target:      %s\n" "$l_target"
+                printf "    Problem:     Directories cannot have file checksums; symlinked directories risk untracked mutations.\n"
+                printf "    Remediation: Convert to real local directory with tracked file symlinks:\n"
+                printf "                 1. rm \"%s\"\n" "$l_link"
+                if [[ -n "$l_rel" ]]; then
+                    printf "                 2. ./scripts/data_tracker.sh add-batch \"%s\" \"%s\" \"<rel_checksum_manifest>\" -r\n\n" "$l_link" "$l_rel"
+                else
+                    printf "                 2. ./scripts/data_tracker.sh add-batch \"%s\" \"<rel_source_dir>\" \"<rel_checksum_manifest>\" -r\n\n" "$l_link"
+                fi
+            done
+            printf "  ${BOLD}Bulk Resolution:${NC} Run './scripts/data_tracker.sh adopt --directory-symlinks' to list all directory symlinks.\n\n"
+        fi
 
         if [[ ${#unignored_list[@]} -gt 0 ]]; then
             printf "\n${YELLOW}[!] Unignored Symlinks (%d) - Risk of accidental Git commits:${NC}\n" "${#unignored_list[@]}"
@@ -1392,12 +1573,327 @@ cmd_adopt() {
         fi
 
         echo ""
-    elif [[ $unignored_count -gt 0 || $unmatched_count -gt 0 || $no_checksum_count -gt 0 || $broken_count -gt 0 ]]; then
+    elif [[ $unignored_count -gt 0 || $unmatched_count -gt 0 || $no_checksum_count -gt 0 || $broken_count -gt 0 || $dir_symlink_count -gt 0 ]]; then
         printf "\nTip: Run './scripts/data_tracker.sh adopt --report' to see itemized paths and suggested commands.\n"
     fi
 }
 
-# Show help menu
+# ------------------------------------------------------------------------------
+# Command-Specific Help Menus
+# ------------------------------------------------------------------------------
+
+usage_init() {
+    cat << EOF
+Usage: $(basename "$0") init
+
+Description:
+  Bootstrap tracking, directory structure, template configs, and Git hook
+  in the current repository.
+
+Actions Performed:
+  • Creates raw_data/, metadata/, and scripts/ directories.
+  • Creates template .env file with DATA_ROOT and storage root placeholders.
+  • Creates empty local_pointers.tsv manifest with standard TSV header.
+  • Adds raw_data/ to .gitignore to prevent accidental raw data commits.
+  • Installs Git pre-commit verification hook.
+
+Examples:
+  $(basename "$0") init
+EOF
+}
+
+usage_add() {
+    cat << EOF
+Usage: $(basename "$0") add <link_name> <rel_data_path> <rel_checksum_path>
+
+Description:
+  Add and cryptographically lock a single raw data file into local_pointers.tsv.
+  Verifies that the target file exists, matches the upstream checksum manifest,
+  and satisfies the Stale Checksum Guard (mtime comparison). Automatically
+  provisions the local symlink upon registration.
+
+Arguments:
+  <link_name>           Relative symlink path inside project (e.g., sample1.bam or bams/sample1.bam)
+  <rel_data_path>       Path relative to storage root (e.g., runs/sample1.bam or REF_ROOT:hg38.fa)
+  <rel_checksum_path>   Upstream checksum file relative to storage root (e.g., runs/checksums.tsv)
+
+Named Roots:
+  Prefix paths with ROOT_NAME: (e.g., REF_ROOT:genomes/hg38.fa).
+  Paths without a prefix default to DATA_ROOT.
+
+Examples:
+  $(basename "$0") add sample1.bam exp1/sample1.bam exp1/checksums.tsv
+  $(basename "$0") add bams/sample2.bam exp1/sample2.bam exp1/checksums.tsv
+  $(basename "$0") add ref.fa REF_ROOT:genomes/hg38.fa REF_ROOT:genomes/checksums.sha256
+EOF
+}
+
+usage_add_batch() {
+    cat << EOF
+Usage: $(basename "$0") add-batch <dest_subdir> <rel_source_dir> <rel_checksum_file> [options]
+
+Description:
+  Batch-add and lock multiple raw data files from an upstream storage folder into
+  local_pointers.tsv. Can perform shallow registration or recursively replicate
+  the upstream directory tree locally using real directories.
+
+Arguments:
+  <dest_subdir>         Local destination subdirectory inside raw_data (or project root if SYMLINK_DIR=.)
+                        Use '.' to place files directly into the symlink directory.
+  <rel_source_dir>      Upstream directory relative to storage root (e.g., studyA/bams or REF_ROOT:annotations)
+  <rel_checksum_file>   Upstream checksum manifest relative to storage root (e.g., studyA/checksums.tsv)
+
+Options:
+  -p, --pattern <glob>  Only add files matching glob pattern (e.g., "*.bam", "*.fastq.gz", "*.bw")
+  -r, --recursive       Recursively traverse source directory tree. Recreates all intermediate
+                        subdirectories as REAL local directories (mkdir -p), provisioning individual
+                        file symlinks inside them. Prevents directory symlinks.
+
+Examples:
+  # Shallow batch add all files in run1/ into raw_data/bams/
+  $(basename "$0") add-batch "bams" "run1" "run1/checksums.tsv"
+
+  # Shallow batch add only BAM files
+  $(basename "$0") add-batch "bams" "run1" "run1/checksums.tsv" -p "*.bam"
+
+  # Recursive batch add preserving nested directories (creates real local folders, file symlinks)
+  $(basename "$0") add-batch "Bigwigs" "study_peaks" "study_peaks/checksums.tsv" -r -p "*.bw"
+
+  # Batch add directly into project root in scattered mode (SYMLINK_DIR=.)
+  $(basename "$0") add-batch "." "study_peaks" "study_peaks/checksums.tsv" -r -p "*.bw"
+EOF
+}
+
+usage_adopt() {
+    cat << EOF
+Usage: $(basename "$0") adopt [options]
+
+Description:
+  Scan the project repository for existing symlinks, verify their safety under Git,
+  match targets against active storage roots (DATA_ROOT, <NAME>_ROOT), locate upstream
+  checksum manifests, and auto-register valid files into local_pointers.tsv.
+
+  Identifies directory symlinks, broken symlinks, unignored symlinks, and files
+  missing upstream checksums, providing actionable remediation steps.
+
+Options:
+  -n, --dry-run                  Preview adoption actions without modifying local_pointers.tsv
+  -r, --report, --details        Print detailed categorized breakdown of errors and action items
+  --missing-checksums            Filter mode: Output symlinks missing upstream checksum manifests
+  --missing-checksum-dirs        Filter mode: Output unique external directories needing checksums
+  --directory-symlinks,
+  --dir-symlinks                 Filter mode: Output symlinks that point to directories
+  --unignored                    Filter mode: Output symlinks not ignored by .gitignore
+  --unmatched                    Filter mode: Output symlinks pointing outside active storage roots
+  --broken                       Filter mode: Output broken or dangling symlinks
+  --already-tracked              Filter mode: Output symlinks already tracked in local_pointers.tsv
+
+Examples:
+  # Preview adoption
+  $(basename "$0") adopt --dry-run
+
+  # View detailed report with actionable commands
+  $(basename "$0") adopt --report
+
+  # Generate missing checksums for all external directories in one pass
+  $(basename "$0") adopt --missing-checksum-dirs | while read d; do $(basename "$0") generate-checksums "\$d"; done
+
+  # Add all unignored symlinks to .gitignore safely
+  $(basename "$0") adopt --unignored >> .gitignore
+
+  # List untracked directory symlinks to convert via add-batch -r
+  $(basename "$0") adopt --directory-symlinks
+
+  # Run adoption and commit entries to local_pointers.tsv
+  $(basename "$0") adopt
+EOF
+}
+
+usage_verify() {
+    cat << EOF
+Usage: $(basename "$0") verify [options]
+
+Description:
+  Verify integrity of all datasets tracked in local_pointers.tsv across all
+  active storage roots. Ensures data files and checksum manifests exist, verifies
+  that checksum files have not become stale, and confirms cryptographic hashes.
+
+Verification Tiers:
+  Tier 1 (Fast Handshake - Default):
+    Completes in under 1 second. Checks file existence, Stale Checksum Guard (mtime),
+    and matches upstream checksum manifest records against local_pointers.tsv.
+    Suitable for automated pre-commit Git hooks.
+
+  Tier 2 (Deep Cryptographic Calculation - via --deep):
+    Computes cryptographic MD5/SHA256 hashes of actual raw binary files on disk
+    and verifies bit-level integrity against local_pointers.tsv.
+    Recommended before pipeline runs and pre-publication audits.
+
+Options:
+  --deep                Run Tier 2 deep cryptographic hash verification
+
+Examples:
+  $(basename "$0") verify
+  $(basename "$0") verify --deep
+EOF
+}
+
+usage_update() {
+    cat << EOF
+Usage: $(basename "$0") update <link_name>
+
+Description:
+  Re-read the upstream checksum manifest for a specific pointer and update its
+  recorded cryptographic hash in local_pointers.tsv.
+
+  Use this command ONLY when upstream data has been intentionally modified or
+  re-generated upstream with verified provenance.
+
+Arguments:
+  <link_name>           Symlink identifier in local_pointers.tsv to update
+
+Examples:
+  $(basename "$0") update sample1.bam
+  $(basename "$0") update bams/sample1.bam
+EOF
+}
+
+usage_relocate() {
+    cat << EOF
+Usage: $(basename "$0") relocate <old_path_string> <new_path_string>
+
+Description:
+  Batch-replace path substrings in local_pointers.tsv. Useful when external storage
+  mount points, server names, or folder structures are moved or renamed.
+  Automatically updates data paths, metadata paths, and refreshes symlinks.
+
+Arguments:
+  <old_path_string>     Subpath or root string to replace
+  <new_path_string>     Replacement subpath or root string
+
+Examples:
+  # When a storage folder has been renamed
+  $(basename "$0") relocate "old_study_name" "new_study_name"
+
+  # Migrating to a named storage root
+  $(basename "$0") relocate "DATA_ROOT:genomes" "REF_ROOT:genomes"
+EOF
+}
+
+usage_link() {
+    cat << EOF
+Usage: $(basename "$0") link
+
+Description:
+  Provision or refresh all symbolic links defined in local_pointers.tsv.
+  Creates necessary local parent directories, validates target paths across
+  all configured storage roots, and creates symlinks using 'ln -sfn'.
+
+Examples:
+  $(basename "$0") link
+EOF
+}
+
+usage_status() {
+    cat << EOF
+Usage: $(basename "$0") status
+
+Description:
+  Display an overview of all tracked pointers in local_pointers.tsv, including
+  target paths, symlink health (OK, BROKEN, MISSING), and recorded hashes.
+
+Examples:
+  $(basename "$0") status
+EOF
+}
+
+usage_generate_checksums() {
+    cat << EOF
+Usage: $(basename "$0") generate-checksums <directory> [options]
+
+Description:
+  Generate a standardized checksums.tsv manifest for all files in an external
+  data folder. Computes MD5 and/or SHA256 hashes using native tools (md5sum,
+  shasum, or md5) with cross-platform macOS/Linux support.
+
+Arguments:
+  <directory>           External directory containing raw data files
+
+Options:
+  --algorithm <alg>     Hash algorithm: md5, sha256, or both (default: both)
+  --pattern <glob>      Filter files by glob pattern (e.g., "*.bam", "*.fastq.gz")
+  --output <filename>   Output manifest filename (default: checksums.tsv)
+
+Examples:
+  $(basename "$0") generate-checksums /Volumes/Data/study1
+  $(basename "$0") generate-checksums /Volumes/Data/study1 --pattern "*.bam"
+  $(basename "$0") generate-checksums /Volumes/Data/study1 --algorithm sha256
+EOF
+}
+
+usage_install_hook() {
+    cat << EOF
+Usage: $(basename "$0") install-hook
+
+Description:
+  Install the Git pre-commit verification hook into .git/hooks/pre-commit.
+  The hook runs Tier 1 fast verification before each commit, preventing
+  broken symlinks, missing storage roots, or stale checksums from being committed.
+
+Examples:
+  $(basename "$0") install-hook
+EOF
+}
+
+usage_command() {
+    local cmd="${1:-}"
+    case "$cmd" in
+        init)
+            usage_init
+            ;;
+        add)
+            usage_add
+            ;;
+        add-batch)
+            usage_add_batch
+            ;;
+        adopt|scan)
+            usage_adopt
+            ;;
+        verify|check|--deep)
+            usage_verify
+            ;;
+        update|--update)
+            usage_update
+            ;;
+        relocate|--relocate)
+            usage_relocate
+            ;;
+        link|--link|provision)
+            usage_link
+            ;;
+        status|list)
+            usage_status
+            ;;
+        generate-checksums)
+            usage_generate_checksums
+            ;;
+        install-hook)
+            usage_install_hook
+            ;;
+        *)
+            log_error "No specific help available for unknown command: $cmd"
+            echo ""
+            usage
+            exit 1
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# Main Help Menu
+# ------------------------------------------------------------------------------
+
 usage() {
     cat << EOF
 Usage: $(basename "$0") <command> [arguments]
@@ -1405,7 +1901,7 @@ Usage: $(basename "$0") <command> [arguments]
 Commands:
   init                                 Bootstrap tracking, directories, template configs & Git hook
   add <link> <rel_data> <rel_meta>     Add/lock a new file from storage with Stale Guard
-  add-batch <dest> <dir> <meta> [-p]   Batch-add all files from an upstream folder matching pattern
+  add-batch <dest> <dir> <meta> [-r]   Batch-add files from storage (shallow or -r recursive)
   adopt [opts]                         Scan repo for existing symlinks, audit gitignore, & auto-import
   verify [--deep]                      Verify integrity (Tier 1 fast check; --deep for Tier 2 crypto)
   update <link_name>                   Pull latest hash from upstream metadata if legitimately updated
@@ -1414,15 +1910,23 @@ Commands:
   status                               Display current pointer manifest and symlink health
   generate-checksums <dir> [opts]      Generate upstream checksums.tsv for an external data directory
   install-hook                         Configure Git pre-commit verification hook
-  help                                 Show this help message
+  help [command]                       Show this help menu or specific help for a command
 
-Options:
-  --deep                               Perform full cryptographic calculation during verification
+Command Help:
+  $(basename "$0") help <command>      Display detailed help and examples for a specific command
+  $(basename "$0") <command> --help    (or -h) Display help for a specific command
+
+Global Options:
   --data-root <path>                   Override DATA_ROOT for this invocation
+  --deep                               Perform full cryptographic calculation during verification
+
+Adopt Options:
   --dry-run, -n                        Preview adopt actions without modifying local_pointers.tsv
   --report, -r, --details              Print detailed itemized breakdown of errors and action items
   --missing-checksums                  Filter mode: Output only symlinks missing upstream checksums
   --missing-checksum-dirs             Filter mode: Output unique directories needing checksum generation
+  --directory-symlinks,
+  --dir-symlinks                       Filter mode: Output symlinks pointing to directories
   --unignored                          Filter mode: Output only symlinks not ignored by Git (.gitignore)
   --unmatched                          Filter mode: Output only symlinks outside storage roots
   --broken                             Filter mode: Output only broken/dangling symlinks
@@ -1439,18 +1943,14 @@ Named Roots Syntax:
 
 Examples:
   $(basename "$0") init
-  $(basename "$0") add sample1.bam bams/sample1.bam bams/md5sum.txt
-  $(basename "$0") add ref.fa REF_ROOT:genomes/hg38.fa REF_ROOT:genomes/checksums.sha256
-  $(basename "$0") adopt
+  $(basename "$0") help add-batch
+  $(basename "$0") add-batch "Bigwigs" "study_peaks" "study_peaks/checksums.tsv" -r -p "*.bw"
   $(basename "$0") adopt --dry-run --report
-  $(basename "$0") adopt --missing-checksums
   $(basename "$0") adopt --missing-checksum-dirs
-  $(basename "$0") adopt --unignored >> .gitignore
   $(basename "$0") verify
   $(basename "$0") verify --deep
   $(basename "$0") link
   $(basename "$0") status
-
 EOF
 }
 
@@ -1458,17 +1958,13 @@ EOF
 # Entry Point & CLI Argument Parsing
 # ------------------------------------------------------------------------------
 
-# Support --data-root / -r override flag
+# Extract global --data-root overrides if present before command
 ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --data-root|-r)
+        --data-root)
             export DATA_ROOT="$2"
             shift 2
-            ;;
-        --help|-h)
-            usage
-            exit 0
             ;;
         *)
             ARGS+=("$1")
@@ -1485,6 +1981,50 @@ fi
 set -- "${ARGS[@]}"
 COMMAND="$1"
 shift
+
+# If user asked for global help
+if [[ "$COMMAND" == "-h" || "$COMMAND" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
+# If user called "help <command>" or "help"
+if [[ "$COMMAND" == "help" ]]; then
+    if [[ $# -gt 0 ]]; then
+        usage_command "$1"
+    else
+        usage
+    fi
+    exit 0
+fi
+
+# Check if command has -h or --help in its arguments
+for arg in "$@"; do
+    if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+        usage_command "$COMMAND"
+        exit 0
+    fi
+done
+
+# Extract any remaining --data-root flags within command args
+CLEAN_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --data-root)
+            export DATA_ROOT="$2"
+            shift 2
+            ;;
+        *)
+            CLEAN_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+if [[ ${#CLEAN_ARGS[@]} -gt 0 ]]; then
+    set -- "${CLEAN_ARGS[@]}"
+else
+    set --
+fi
 
 case "$COMMAND" in
     init)
@@ -1523,11 +2063,9 @@ case "$COMMAND" in
     install-hook)
         cmd_install_hook "$@"
         ;;
-    help|--help|-h)
-        usage
-        ;;
     *)
         log_error "Unknown command: $COMMAND"
+        echo ""
         usage
         exit 1
         ;;

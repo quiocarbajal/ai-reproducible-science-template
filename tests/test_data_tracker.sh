@@ -41,7 +41,7 @@ cleanup() {
         cp "$BACKUP_ENV" "${PROJECT_ROOT}/.env" 2>/dev/null || true
     fi
     rm -rf "${PROJECT_ROOT}/.test_tmp"
-    rm -rf "${PROJECT_ROOT}/analyses" "${PROJECT_ROOT}/references" "${PROJECT_ROOT}/experiments" "${PROJECT_ROOT}/raw_data" 2>/dev/null || true
+    rm -rf "${PROJECT_ROOT}/analyses" "${PROJECT_ROOT}/references" "${PROJECT_ROOT}/experiments" "${PROJECT_ROOT}/raw_data" "${PROJECT_ROOT}/Bigwigs" "${PROJECT_ROOT}/Bigwigs_Abs" "${PROJECT_ROOT}/Bigwigs_Junk" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -369,11 +369,118 @@ test_assert "adopt --report categorizes broken symlinks" $?
 rm -rf "${PROJECT_ROOT}/experiments/test_report"
 
 # ------------------------------------------------------------------------------
-# Test 16: Git Pre-Commit Hook Integration
+# Test 16: Recursive Batch Add (add-batch -r) with Real Directories
+# ------------------------------------------------------------------------------
+# Setup nested upstream study folder
+mkdir -p "${MOCK_ROOT}/nested_study/sub1/sub2"
+echo "BIGWIG CONTENT 1" > "${MOCK_ROOT}/nested_study/sub1/sub2/track1.bw"
+echo "BIGWIG CONTENT 2" > "${MOCK_ROOT}/nested_study/sub1/track2.bw"
+echo "OTHER CONTENT TXT" > "${MOCK_ROOT}/nested_study/sub1/notes.txt"
+
+# Generate upstream checksums
+bash "${PROJECT_ROOT}/scripts/generate_checksums.sh" "${MOCK_ROOT}/nested_study" >/dev/null 2>&1
+
+# Run recursive batch add filtering for *.bw
+"$TRACKER" add-batch "Bigwigs" "nested_study" "nested_study/checksums.tsv" -r -p "*.bw" >/dev/null 2>&1
+test_assert "add-batch -r recursively registers nested files" $?
+
+# Verify that intermediate directories are REAL physical directories (not symlinks)
+if [[ -d "${PROJECT_ROOT}/Bigwigs" && ! -L "${PROJECT_ROOT}/Bigwigs" && \
+      -d "${PROJECT_ROOT}/Bigwigs/sub1" && ! -L "${PROJECT_ROOT}/Bigwigs/sub1" && \
+      -d "${PROJECT_ROOT}/Bigwigs/sub1/sub2" && ! -L "${PROJECT_ROOT}/Bigwigs/sub1/sub2" ]]; then
+    test_assert "add-batch -r creates real physical local directories (not directory symlinks)" 0
+else
+    test_assert "add-batch -r creates real physical local directories (not directory symlinks)" 1
+fi
+
+# Verify that leaf files are valid symlinks pointing to real data
+if [[ -L "${PROJECT_ROOT}/Bigwigs/sub1/sub2/track1.bw" && -e "${PROJECT_ROOT}/Bigwigs/sub1/sub2/track1.bw" && \
+      -L "${PROJECT_ROOT}/Bigwigs/sub1/track2.bw" && -e "${PROJECT_ROOT}/Bigwigs/sub1/track2.bw" && \
+      ! -e "${PROJECT_ROOT}/Bigwigs/sub1/notes.txt" ]]; then
+    test_assert "add-batch -r provisions individual leaf file symlinks matching filter pattern" 0
+else
+    test_assert "add-batch -r provisions individual leaf file symlinks matching filter pattern" 1
+fi
+
+# Verify that Tier 1 verification passes on the recursively added pointers
+if "$TRACKER" verify >/dev/null 2>&1; then
+    test_assert "Tier 1 Fast Handshake passes on recursively added batch pointers" 0
+else
+    test_assert "Tier 1 Fast Handshake passes on recursively added batch pointers" 1
+fi
+
+# Test add-batch with flag placed first (-r dest ...) and absolute paths matching root
+"$TRACKER" add-batch -r "Bigwigs_Abs" "${MOCK_ROOT}/nested_study" "${MOCK_ROOT}/nested_study/checksums.tsv" -p "*.bw" >/dev/null 2>&1
+test_assert "add-batch accepts flags first (-r dest ...) and auto-normalizes absolute paths" $?
+
+# Inject OS junk files (.DS_Store, Thumbs.db, AppleDouble ._*) into upstream directory
+echo "DS_STORE JUNK" > "${MOCK_ROOT}/nested_study/.DS_Store"
+echo "THUMBS JUNK" > "${MOCK_ROOT}/nested_study/sub1/Thumbs.db"
+echo "APPLEDOUBLE JUNK" > "${MOCK_ROOT}/nested_study/sub1/._track2.bw"
+
+# Verify add-batch safely skips them and does not fail on missing checksums
+"$TRACKER" add-batch -r "Bigwigs_Junk" "${MOCK_ROOT}/nested_study" "${MOCK_ROOT}/nested_study/checksums.tsv" >/dev/null 2>&1
+test_assert "add-batch ignores .DS_Store, AppleDouble ._*, and OS metadata files" $?
+
+# ------------------------------------------------------------------------------
+# Test 17: Directory Symlink Detection & Flagging in adopt
+# ------------------------------------------------------------------------------
+# Create an accidental directory symlink (pointing to a folder, not a file)
+mkdir -p "${PROJECT_ROOT}/experiments"
+ln -sfn "${MOCK_ROOT}/nested_study" "${PROJECT_ROOT}/experiments/dir_symlink"
+
+# Test adopt --directory-symlinks filter
+DIR_SYMLINK_OUT=$("$TRACKER" adopt --directory-symlinks)
+echo "$DIR_SYMLINK_OUT" | grep -q "experiments/dir_symlink"
+test_assert "adopt --directory-symlinks flags symlinks pointing to directories" $?
+
+# Test adopt --report includes Directory Symlinks warning and remediation
+DIR_REPORT_OUT=$("$TRACKER" adopt --dry-run --report 2>&1)
+echo "$DIR_REPORT_OUT" | grep -q "Directory Symlinks"
+test_assert "adopt --report contains Directory Symlinks warning section" $?
+echo "$DIR_REPORT_OUT" | grep -q -- "-r"
+test_assert "adopt --report provides actionable remediation using add-batch -r" $?
+
+# Clean up accidental directory symlink
+rm -f "${PROJECT_ROOT}/experiments/dir_symlink"
+
+# ------------------------------------------------------------------------------
+# Test 18: Command-Specific Help Menus
+# ------------------------------------------------------------------------------
+# Test data_tracker.sh help add-batch
+HELP_BATCH=$("$TRACKER" help add-batch)
+echo "$HELP_BATCH" | grep -q "Usage: data_tracker.sh add-batch" && echo "$HELP_BATCH" | grep -q -- "-r, --recursive"
+test_assert "help add-batch outputs detailed usage and recursive options" $?
+
+# Test data_tracker.sh add-batch -h
+HELP_BATCH_SHORT=$("$TRACKER" add-batch -h)
+echo "$HELP_BATCH_SHORT" | grep -q "Usage: data_tracker.sh add-batch"
+test_assert "add-batch -h flag triggers command-specific help" $?
+
+# Test data_tracker.sh add-batch --help
+HELP_BATCH_LONG=$("$TRACKER" add-batch --help)
+echo "$HELP_BATCH_LONG" | grep -q "Usage: data_tracker.sh add-batch"
+test_assert "add-batch --help flag triggers command-specific help" $?
+
+# Test data_tracker.sh help adopt
+HELP_ADOPT=$("$TRACKER" help adopt)
+echo "$HELP_ADOPT" | grep -q -- "--directory-symlinks"
+test_assert "help adopt documents directory symlink filters" $?
+
+# Test data_tracker.sh verify --help
+HELP_VERIFY=$("$TRACKER" verify --help)
+echo "$HELP_VERIFY" | grep -q "Tier 1 (Fast Handshake"
+test_assert "verify --help documents verification tiers" $?
+
+# ------------------------------------------------------------------------------
+# Test 19: Git Pre-Commit Hook Integration
 # ------------------------------------------------------------------------------
 # Pre-commit hook should pass right now
-bash "${PROJECT_ROOT}/.githooks/pre-commit" >/dev/null 2>&1
-test_assert "Git pre-commit hook passes when all data pointers are valid" $?
+if bash "${PROJECT_ROOT}/.githooks/pre-commit" >/dev/null 2>&1; then
+    test_assert "Git pre-commit hook passes when all data pointers are valid" 0
+else
+    test_assert "Git pre-commit hook passes when all data pointers are valid" 1
+fi
 
 # Pre-commit hook should abort if file is missing
 rm "${MOCK_ROOT}/references/genome.fa.gz"
