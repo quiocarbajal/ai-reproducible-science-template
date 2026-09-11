@@ -190,13 +190,26 @@ The pre-commit hook automatically executes Tier 1 verification and verifies all 
 
 If you already have a running Git repository and want to retrofit this workflow:  
 
-1. **Copy the essential scripts and templates** into your project:  
+1. **Copy the essential scripts, templates, and AI agent configurations** into your project:  
    ```bash
+   # Core tracking scripts, Git hooks, and configuration template
    cp -r /path/to/template/scripts/ your_project/scripts/
    cp -r /path/to/template/.githooks/ your_project/.githooks/
    cp /path/to/template/.env.example your_project/.env.example
+
+   # AI agent instructions and lifecycle safety hooks (essential for AI pair programming)
+   cp /path/to/template/GEMINI.md your_project/GEMINI.md
+   cp -r /path/to/template/.agents/ your_project/.agents/
+
+   # (Optional) Documentation: copy operational guide (do NOT copy docs/historical/)
+   mkdir -p your_project/docs
+   cp /path/to/template/docs/data_tracking_guide.md your_project/docs/
    ```
-   *(Note: Copying `.env.example` ensures your repository tracks the configuration template in Git so future collaborators know what variables to configure).*
+   *(Notes:*  
+   - *Copying `.env.example` ensures your repository tracks the configuration template in Git so future collaborators know what variables to configure.*  
+   - *Copying `GEMINI.md` is critical when using AI coding assistants (like Antigravity or Gemini): it automatically injects the reproducibility rules, data boundaries, and CLI conventions into the agent's context.*  
+   - *Copying `.agents/` installs the `scientific-data-tracking` skill and active lifecycle hooks (`hooks.json` + `guard.py`) that hard-block agents from accidentally force-adding raw data symlinks or binary files into Git.*  
+   - *Do **NOT** copy `docs/historical/` to new projects. That directory contains initial build specifications that are not relevant to active scientific projects).*
 
 2. **Configure your `.gitignore`**:  
    If your project does not have a `.gitignore` yet, copy the comprehensive template file directly:  

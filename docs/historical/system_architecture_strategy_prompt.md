@@ -1,3 +1,12 @@
+# [ARCHIVE] Original System Architecture & Strategy Specification
+
+> [!NOTE]
+> **Historical Archive**: This document records the original prompt and specification used during the initial design of the data-tracking workflow.
+> It is preserved for reference only. **Do NOT copy this file into new projects or downstream repositories.**
+> For operational guidelines, please refer to [docs/data_tracking_guide.md](../data_tracking_guide.md) and [GEMINI.md](../../GEMINI.md).
+
+---
+
 **System Role & Task:**
 You are a senior bioinformatician and workflow automation engineer. Implement a lightweight, reproducible data-tracking and verification workflow for a genomics project tracked via Git.
 

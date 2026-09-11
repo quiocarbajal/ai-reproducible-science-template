@@ -4,7 +4,7 @@ A lightweight, reproducible data-tracking framework and template repository for 
 
 [![Tests](https://img.shields.io/badge/tests-22%20passed-brightgreen.svg)](tests/test_data_tracker.sh)  
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20HPC-blue.svg)](scripts/data_tracker.sh)  
-[![Reproducibility](https://img.shields.io/badge/reproducibility-3%20Pillars-orange.svg)](GUIDE.md)  
+[![Reproducibility](https://img.shields.io/badge/reproducibility-3%20Pillars-orange.svg)](docs/data_tracking_guide.md)  
 
 ---
 
@@ -37,10 +37,10 @@ A lightweight reproducibility workflow for scientific repositories that manages 
 
 ```
 .
-├── .agents/                  <- Antigravity workspace customizations
-│   ├── hooks.json            <- PreToolUse lifecycle safety firewall
+├── .agents/                  <- Antigravity agent skills & lifecycle safety hooks
+│   ├── hooks.json            <- PreToolUse lifecycle safety firewall (blocks git add -f on data)
 │   ├── scripts/guard.py      <- Deterministic AI safety gatekeeper
-│   └── skills/               <- Autonomous data-tracking skill
+│   └── skills/               <- Autonomous data-tracking skill (scientific-data-tracking)
 ├── .env.example              <- Example configuration for $DATA_ROOT across OSes
 ├── .githooks/
 │   └── pre-commit            <- Enforces Tier 1 verification on git commit
@@ -59,8 +59,12 @@ A lightweight reproducibility workflow for scientific repositories that manages 
 │   ├── data_tracker.sh       <- Portable data-tracking CLI tool
 │   └── generate_checksums.sh <- Portable upstream checksum & manifest generator (Mac & Linux)
 ├── tests/
-│   └── test_data_tracker.sh  <- Automated verification test suite (54 test assertions)
-├── GUIDE.md                  <- Comprehensive project adoption handbook
+│   └── test_data_tracker.sh  <- Automated verification test suite (66 test assertions)
+├── docs/                     <- Comprehensive documentation
+│   ├── data_tracking_guide.md<- End-to-end operational handbook & adoption cookbook
+│   ├── historical/           <- Archived design prompts (not copied to new projects)
+│   └── html/                 <- Publication-ready HTML renderings with floating TOC
+├── GEMINI.md                 <- AI agent instructions & architectural reproducibility constraints
 └── README.md                 <- Project overview & quickstart
 ```
 
@@ -110,7 +114,7 @@ DATA_ROOT=/mnt/scratch/bioinfo_core/raw_datasets
 ## Documentation
 
 For detailed guides, migration instructions for existing projects, and operational recipes:  
-👉 **[Read the Complete Adoption Guide (`GUIDE.md`)](GUIDE.md)**  
+👉 **[Read the Complete Adoption Guide (`docs/data_tracking_guide.md`)](docs/data_tracking_guide.md)**  
 
 ---
 
@@ -120,7 +124,7 @@ Run the automated test suite to verify compatibility on your system:
 ```bash
 ./tests/test_data_tracker.sh
 ```
-All 54 tests covering bootstrap, multi-line parsing, Stale Checksum Guard, hash mismatches, updates, relocations, deep hashing, hierarchical manifests, batch addition (shallow and recursive), scattered symlinks, named multi-mount roots, automated adoption, directory symlink detection, per-command help menus, categorized error reporting, and pre-commit hook enforcement will execute in an isolated sandbox.  
+All 66 tests covering bootstrap, multi-line parsing, Stale Checksum Guard, hash mismatches, updates, relocations, deep hashing, hierarchical manifests, batch addition (shallow and recursive), scattered symlinks, named multi-mount roots, automated adoption, directory symlink detection, per-command help menus, categorized error reporting, and pre-commit hook enforcement will execute in an isolated sandbox.  
 
 ## Credits  
 This project was designed and implemented with the help of AI (mostly Gemini, Flash 3.8)  

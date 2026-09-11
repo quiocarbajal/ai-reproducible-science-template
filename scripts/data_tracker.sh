@@ -449,6 +449,12 @@ cmd_init() {
     # 4. Install Git hook
     cmd_install_hook
 
+    # 5. Check AI Agent configuration
+    if [[ ! -f "${REPO_ROOT}/GEMINI.md" || ! -d "${REPO_ROOT}/.agents" ]]; then
+        log_warn "AI agent configuration (GEMINI.md or .agents/) not found in project root."
+        printf "  Copy GEMINI.md and .agents/ from the template to ensure AI coding assistants follow data tracking rules.\n"
+    fi
+
     printf "\n${GREEN}${BOLD}Project data-tracking initialized successfully!${NC}\n"
     printf "Next steps:\n"
     printf "  1. Set DATA_ROOT in .env or via 'export DATA_ROOT=...'\n"
