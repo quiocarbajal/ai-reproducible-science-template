@@ -370,14 +370,14 @@ If adopting this framework on an already-started project where symlinks live in 
 | `./scripts/data_tracker.sh adopt --unmatched` | List symlinks pointing outside active storage roots |
 | `./scripts/data_tracker.sh adopt --broken` | List broken / dangling symlinks |
 | `./scripts/generate_checksums.sh <dir> [opts]` | Generate clean upstream `checksums.tsv` (macOS & Linux compatible) |
-| `./scripts/data_tracker.sh verify` | Tier 1 Fast Handshake check across all configured roots (<1s) |
+| `./scripts/data_tracker.sh verify [-q] [-v]` | Tier 1 Fast Handshake check across all configured roots (<1s, -q quiet) |
 | `./scripts/data_tracker.sh verify --deep` | Tier 2 Deep cryptographic verification across all storage roots |
 | `./scripts/data_tracker.sh update <link>` | Pull updated upstream hash into TSV (requires human approval) |
 | `./scripts/data_tracker.sh relocate <old> <new>` | Batch rename paths in TSV & re-link |
 | `./scripts/data_tracker.sh link` | Provision / repair all symlinks across project |
 | `./scripts/data_tracker.sh status [-v]` | Display pointer summary, root mounts, & symlink health |
 | `./scripts/data_tracker.sh help [cmd]` or `<cmd> --help` | Display command-specific help documentation and examples |
-| `./tests/test_data_tracker.sh` | Run automated test suite (54 test assertions) |
+| `./tests/test_data_tracker.sh` | Run automated test suite (69 test assertions) |
 
 ---
 

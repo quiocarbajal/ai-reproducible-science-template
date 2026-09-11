@@ -290,50 +290,75 @@ extract_hash_from_checksum_file() {
     fi
 
     awk -v target_base="$base_name" -v target_file="$relative_source_path" -v target_rel="$rel_from_meta" '
+    BEGIN {
+        exact_hash = ""
+        fallback_hash = ""
+        single_hash = ""
+        base_match_count = 0
+    }
     {
         gsub(/\r/, "")
         line = $0
 
+        # Skip comment lines
+        if (line ~ /^[[:space:]]*#/) next
+
         # 1. BSD format: ALGO (filename) = <hash>
         if ($0 ~ /^[A-Za-z0-9_-]+ \(.+\) = [0-9a-fA-F]+$/) {
-            if (line ~ ("\\(" target_base "\\)") || line ~ ("\\(" target_file "\\)") || line ~ ("\\(" target_rel "\\)")) {
-                print tolower($NF)
+            match(line, /\(.*\)/)
+            f = substr(line, RSTART + 1, RLENGTH - 2)
+            h = tolower($NF)
+            if (f == target_rel || f == target_file || f == ("./" target_rel) || f == target_base) {
+                exact_hash = h
                 exit 0
             }
+            sub(/.*\//, "", f)
+            if (f == target_base) {
+                base_match_count++
+                if (base_match_count == 1) fallback_hash = h
+                else fallback_hash = ""
+            }
+            next
         }
 
         # 2. TSV format with path first: <path>\t<hash>... (e.g. from generate_checksums.sh)
         if ($NF ~ /^[0-9a-fA-F]{32,128}$/ || $2 ~ /^[0-9a-fA-F]{32,128}$/) {
-            target_hash = ""
             path_col = $1
-            if ($2 ~ /^[0-9a-fA-F]{32,128}$/) {
-                target_hash = tolower($2)
-            } else {
-                target_hash = tolower($NF)
-            }
-            if (path_col == target_rel || path_col == target_base || path_col == target_file || path_col == ("./" target_rel) || path_col ~ ("(^|/)" target_base "$")) {
-                print target_hash
+            target_h = ($2 ~ /^[0-9a-fA-F]{32,128}$/) ? tolower($2) : tolower($NF)
+            if (path_col == target_rel || path_col == target_file || path_col == ("./" target_rel) || path_col == target_base) {
+                exact_hash = target_h
                 exit 0
             }
+            sub(/.*\//, "", path_col)
+            if (path_col == target_base) {
+                base_match_count++
+                if (base_match_count == 1) fallback_hash = target_h
+                else fallback_hash = ""
+            }
+            next
         }
 
         # 3. Standard GNU format: <hash>  [*]<filename> (or TSV with hash first)
         if ($1 ~ /^[0-9a-fA-F]{32,128}$/) {
+            target_h = tolower($1)
             rest = substr(line, length($1) + 1)
             sub(/^[ \t]+/, "", rest)
             sub(/^\*/, "", rest)
 
             split(rest, parts, "\t")
             matched_path = parts[1]
-            if (matched_path == target_rel || matched_path == target_base || matched_path == target_file || matched_path == ("./" target_rel) || matched_path ~ ("(^|/)" target_base "$")) {
-                print tolower($1)
+            if (matched_path == target_rel || matched_path == target_file || matched_path == ("./" target_rel) || matched_path == target_base || rest == target_rel || rest == target_file || rest == ("./" target_rel) || rest == target_base) {
+                exact_hash = target_h
                 exit 0
             }
 
-            if (rest == target_rel || rest == target_base || rest == target_file || rest == ("./" target_rel) || rest ~ ("(^|/)" target_base "$")) {
-                print tolower($1)
-                exit 0
+            sub(/.*\//, "", matched_path)
+            if (matched_path == target_base) {
+                base_match_count++
+                if (base_match_count == 1) fallback_hash = target_h
+                else fallback_hash = ""
             }
+            next
         }
 
         # 4. Fallback: Single-line file with only a hash
@@ -342,7 +367,11 @@ extract_hash_from_checksum_file() {
         }
     }
     END {
-        if (single_hash != "") {
+        if (exact_hash != "") {
+            print exact_hash
+        } else if (fallback_hash != "") {
+            print fallback_hash
+        } else if (single_hash != "") {
             print single_hash
         }
     }
@@ -1118,35 +1147,386 @@ cmd_link() {
     fi
 }
 
-# Command: verify [--deep]
+# Command: verify [--deep] [-q|--quiet] [-v|--verbose]
 cmd_verify() {
     local deep_mode=0
+    local quiet_mode=0
+    local verbose_mode=0
+
     for arg in "$@"; do
-        if [[ "$arg" == "--deep" ]]; then
-            deep_mode=1
-        fi
+        case "$arg" in
+            --deep)
+                deep_mode=1
+                ;;
+            -q|--quiet)
+                quiet_mode=1
+                ;;
+            -v|--verbose)
+                verbose_mode=1
+                ;;
+            *)
+                ;;
+        esac
     done
 
     resolve_symlink_dir
     ensure_pointers_file
 
-    if [[ $deep_mode -eq 1 ]]; then
-        print_header "Executing Tier 2 Deep Cryptographic Verification"
-    else
-        print_header "Executing Tier 1 Fast Handshake Verification"
+    local py_cmd=""
+    if /usr/bin/python3 -c "import sys" >/dev/null 2>&1; then
+        py_cmd="/usr/bin/python3"
+    elif python3 -c "import sys" >/dev/null 2>&1; then
+        py_cmd="python3"
     fi
 
-    local configured_roots=()
-    for r in $(get_all_roots); do
-        if [[ -n "${!r:-}" ]]; then
-            configured_roots+=("$r")
-            printf "%-12s %s\n" "$r:" "${!r}"
+    # High-Performance Tier 1 Handshake via embedded Python accelerator
+    if [[ $deep_mode -eq 0 && -n "$py_cmd" ]]; then
+        if [[ $quiet_mode -eq 0 ]]; then
+            print_header "Executing Tier 1 Fast Handshake Verification"
+            local configured_roots=()
+            for r in $(get_all_roots); do
+                if [[ -n "${!r:-}" ]]; then
+                    configured_roots+=("$r")
+                    printf "%-12s %s\n" "$r:" "${!r}"
+                fi
+            done
+            if [[ ${#configured_roots[@]} -eq 0 ]]; then
+                printf "%-12s %s\n" "DATA_ROOT:" "${DATA_ROOT:-[NOT SET]}"
+            fi
+            echo ""
         fi
-    done
-    if [[ ${#configured_roots[@]} -eq 0 ]]; then
-        printf "%-12s %s\n" "DATA_ROOT:" "${DATA_ROOT:-[NOT SET]}"
+
+        local color_val=0
+        if [[ -t 1 ]]; then color_val=1; fi
+
+        REPO_ROOT="$REPO_ROOT" "$py_cmd" - "$POINTERS_FILE" "$quiet_mode" "$verbose_mode" "$color_val" << 'PYEOF'
+import os, sys, re
+from datetime import datetime
+
+pointers_file = sys.argv[1]
+quiet = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+verbose = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+use_color = int(sys.argv[4]) if len(sys.argv) > 4 else (1 if sys.stdout.isatty() else 0)
+
+RED = "\033[0;31m" if use_color else ""
+GREEN = "\033[0;32m" if use_color else ""
+YELLOW = "\033[1;33m" if use_color else ""
+BLUE = "\033[0;34m" if use_color else ""
+BOLD = "\033[1m" if use_color else ""
+NC = "\033[0m" if use_color else ""
+
+def log_error(msg):
+    sys.stderr.write(f"{RED}[ERROR]{NC} {msg}\n")
+
+def format_epoch(ts):
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+
+roots = {}
+if "DATA_ROOT" in os.environ and os.environ["DATA_ROOT"]:
+    roots["DATA_ROOT"] = os.path.abspath(os.environ["DATA_ROOT"])
+
+for k, v in os.environ.items():
+    if k.endswith("_ROOT") and k not in ("REPO_ROOT", "PROJECT_ROOT") and v:
+        roots[k] = os.path.abspath(v)
+
+repo_root = os.environ.get("REPO_ROOT", os.path.abspath("."))
+env_path = os.path.join(repo_root, ".env")
+if os.path.isfile(env_path):
+    try:
+        with open(env_path, "r", encoding="utf-8", errors="replace") as ef:
+            for line in ef:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip("\"'")
+                if k.endswith("_ROOT") and k not in ("REPO_ROOT", "PROJECT_ROOT") and k not in roots and v:
+                    roots[k] = os.path.abspath(v)
+    except Exception:
+        pass
+
+def parse_spec(spec):
+    if ":" in spec:
+        r, p = spec.split(":", 1)
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", r):
+            return r, p
+    return "DATA_ROOT", spec
+
+if not os.path.isfile(pointers_file):
+    log_error(f"Pointers file not found: {pointers_file}")
+    sys.exit(1)
+
+entries = []
+try:
+    with open(pointers_file, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.replace("\r", "").rstrip("\n")
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("\t")
+            if parts[0] == "link_name":
+                continue
+            if len(parts) < 4:
+                continue
+            entries.append((parts[0].strip(), parts[1].strip(), parts[2].strip(), parts[3].strip()))
+except Exception as e:
+    log_error(f"Cannot read pointers file {pointers_file}: {e}")
+    sys.exit(1)
+
+manifest_cache = {}
+
+def get_manifest(abs_meta):
+    if abs_meta in manifest_cache:
+        return manifest_cache[abs_meta]
+    if not os.path.isfile(abs_meta):
+        return None
+    try:
+        mtime = int(os.path.getmtime(abs_meta))
+    except OSError:
+        return None
+
+    exact_hashes = {}
+    base_hashes = {}
+    ambiguous_bases = set()
+    single_hash = None
+    lines_count = 0
+
+    try:
+        with open(abs_meta, "r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                line = raw_line.strip().replace("\r", "")
+                if not line or line.startswith("#"):
+                    continue
+                lines_count += 1
+
+                # 1. BSD format: ALGO (filename) = <hash>
+                bsd_match = re.match(r"^[A-Za-z0-9_-]+\s*\((.+)\)\s*=\s*([0-9a-fA-F]{32,128})$", line)
+                if bsd_match:
+                    fn, h = bsd_match.group(1).strip(), bsd_match.group(2).lower()
+                    exact_hashes[fn] = h
+                    if fn.startswith("./"):
+                        exact_hashes[fn[2:]] = h
+                    else:
+                        exact_hashes["./" + fn] = h
+                    bn = os.path.basename(fn)
+                    if bn in base_hashes and base_hashes[bn] != h:
+                        ambiguous_bases.add(bn)
+                    else:
+                        base_hashes[bn] = h
+                    if lines_count == 1:
+                        single_hash = h
+                    continue
+
+                # 2. TSV format with path first: <path>\t<hash>... (e.g. from generate_checksums.sh)
+                parts = [p.strip() for p in line.split("\t") if p.strip()]
+                if len(parts) >= 2:
+                    if parts[0] == "relative_path" or parts[0] == "path":
+                        continue
+                    fn = parts[0]
+                    h = None
+                    if re.match(r"^[0-9a-fA-F]{32,128}$", parts[1]):
+                        h = parts[1].lower()
+                    elif re.match(r"^[0-9a-fA-F]{32,128}$", parts[-1]):
+                        h = parts[-1].lower()
+                    if h:
+                        exact_hashes[fn] = h
+                        if fn.startswith("./"):
+                            exact_hashes[fn[2:]] = h
+                        else:
+                            exact_hashes["./" + fn] = h
+                        bn = os.path.basename(fn)
+                        if bn in base_hashes and base_hashes[bn] != h:
+                            ambiguous_bases.add(bn)
+                        else:
+                            base_hashes[bn] = h
+                        if lines_count == 1:
+                            single_hash = h
+                        continue
+
+                # 3. Standard GNU format: <hash>  [*]<filename>
+                gnu_match = re.match(r"^([0-9a-fA-F]{32,128})\s+\*?(.*)$", line)
+                if gnu_match:
+                    h = gnu_match.group(1).lower()
+                    fn = gnu_match.group(2).strip()
+                    if fn:
+                        exact_hashes[fn] = h
+                        if fn.startswith("./"):
+                            exact_hashes[fn[2:]] = h
+                        else:
+                            exact_hashes["./" + fn] = h
+                        bn = os.path.basename(fn)
+                        if bn in base_hashes and base_hashes[bn] != h:
+                            ambiguous_bases.add(bn)
+                        else:
+                            base_hashes[bn] = h
+                    if lines_count == 1:
+                        single_hash = h
+                    continue
+
+                # 4. Single-line raw hash
+                if lines_count == 1 and re.match(r"^[0-9a-fA-F]{32,128}$", line):
+                    single_hash = line.lower()
+
+        if lines_count > 1:
+            single_hash = None
+
+        for ab in ambiguous_bases:
+            base_hashes.pop(ab, None)
+
+        manifest_cache[abs_meta] = (exact_hashes, base_hashes, single_hash, mtime)
+        return manifest_cache[abs_meta]
+    except Exception:
+        return None
+
+passed = 0
+failed = 0
+total = len(entries)
+
+for col_link, col_data, col_meta, col_hash in entries:
+    item_printed = False
+    def ensure_item_header():
+        global item_printed
+        if not item_printed:
+            sys.stdout.write(f"[{col_link}]\n")
+            sys.stdout.flush()
+            item_printed = True
+
+    if not quiet:
+        ensure_item_header()
+
+    root_data, rel_data = parse_spec(col_data)
+    root_meta, rel_meta = parse_spec(col_meta)
+
+    root_data_val = roots.get(root_data)
+    root_meta_val = roots.get(root_meta)
+
+    if not root_data_val or not os.path.isdir(root_data_val):
+        ensure_item_header()
+        log_error(f"  Missing storage root '{root_data}' ({root_data_val or 'unset or unmounted'})")
+        failed += 1
+        continue
+
+    if not root_meta_val or not os.path.isdir(root_meta_val):
+        ensure_item_header()
+        log_error(f"  Missing metadata root '{root_meta}' ({root_meta_val or 'unset or unmounted'})")
+        failed += 1
+        continue
+
+    clean_data = rel_data.lstrip("/")
+    clean_meta = rel_meta.lstrip("/")
+    abs_data = os.path.join(root_data_val, clean_data)
+    abs_meta = os.path.join(root_meta_val, clean_meta)
+
+    # 1. Existence checks
+    if not os.path.isfile(abs_data):
+        ensure_item_header()
+        log_error(f"  Missing binary data file: {abs_data}")
+        failed += 1
+        continue
+
+    meta_info = get_manifest(abs_meta)
+    if meta_info is None:
+        ensure_item_header()
+        log_error(f"  Missing upstream checksum file: {abs_meta}")
+        failed += 1
+        continue
+
+    exact_hashes, base_hashes, single_hash, mtime_meta = meta_info
+
+    # 2. Stale Checksum Guard (mtime check)
+    try:
+        mtime_data = int(os.path.getmtime(abs_data))
+    except OSError:
+        ensure_item_header()
+        log_error(f"  Cannot determine modification time: {abs_data}")
+        failed += 1
+        continue
+
+    if mtime_data > mtime_meta:
+        ensure_item_header()
+        log_error("  STALE CHECKSUM: Data file is newer than checksum file!")
+        sys.stderr.write(f"    Data modified:     {format_epoch(mtime_data)}\n")
+        sys.stderr.write(f"    Checksum modified: {format_epoch(mtime_meta)}\n")
+        failed += 1
+        continue
+
+    # 3. Hash Match against upstream metadata
+    meta_dir = os.path.dirname(clean_meta)
+    rel_from_meta = clean_data
+    if meta_dir and meta_dir != "." and clean_data.startswith(meta_dir + "/"):
+        rel_from_meta = clean_data[len(meta_dir) + 1:]
+
+    base_name = os.path.basename(clean_data)
+
+    upstream_hash = None
+    for candidate in [clean_data, rel_from_meta, "./" + rel_from_meta, base_name]:
+        if candidate in exact_hashes:
+            upstream_hash = exact_hashes[candidate]
+            break
+
+    if upstream_hash is None and base_name in base_hashes:
+        upstream_hash = base_hashes[base_name]
+
+    if upstream_hash is None and single_hash:
+        upstream_hash = single_hash
+
+    if not upstream_hash:
+        ensure_item_header()
+        log_error(f"  Could not parse hash for '{clean_data}' from {abs_meta}")
+        failed += 1
+        continue
+
+    norm_upstream = upstream_hash.lower()
+    norm_col = col_hash.strip().lower()
+
+    if norm_upstream != norm_col:
+        ensure_item_header()
+        log_error("  HASH MISMATCH with upstream metadata file!")
+        sys.stderr.write(f"    Locked in TSV: {col_hash}\n")
+        sys.stderr.write(f"    Upstream meta: {upstream_hash}\n")
+        failed += 1
+        continue
+
+    if not quiet:
+        sys.stdout.write(f"  ✓ Tier 1 Handshake verified (hash: {upstream_hash})\n")
+
+    passed += 1
+
+if not quiet or failed > 0:
+    sys.stdout.write(f"\nSummary: {passed} passed, {failed} failed out of {total} total pointers.\n")
+
+if failed > 0:
+    log_error("Verification failed for one or more files.")
+    sys.exit(1)
+else:
+    if not quiet:
+        sys.stdout.write(f"{GREEN}[SUCCESS]{NC} All pointers verified successfully.\n")
+    sys.exit(0)
+PYEOF
+        return $?
     fi
-    echo ""
+
+    # Fallback: Portable Pure Bash/Awk Verification Engine
+    if [[ $quiet_mode -eq 0 ]]; then
+        if [[ $deep_mode -eq 1 ]]; then
+            print_header "Executing Tier 2 Deep Cryptographic Verification"
+        else
+            print_header "Executing Tier 1 Fast Handshake Verification"
+        fi
+
+        local configured_roots=()
+        for r in $(get_all_roots); do
+            if [[ -n "${!r:-}" ]]; then
+                configured_roots+=("$r")
+                printf "%-12s %s\n" "$r:" "${!r}"
+            fi
+        done
+        if [[ ${#configured_roots[@]} -eq 0 ]]; then
+            printf "%-12s %s\n" "DATA_ROOT:" "${DATA_ROOT:-[NOT SET]}"
+        fi
+        echo ""
+    fi
 
     local total=0
     local passed=0
@@ -1167,15 +1547,19 @@ cmd_verify() {
         local root_data_val="${!root_data:-}"
         local root_meta_val="${!root_meta:-}"
 
-        printf "[%s]\n" "$col_link"
+        if [[ $quiet_mode -eq 0 ]]; then
+            printf "[%s]\n" "$col_link"
+        fi
 
         if [[ -z "$root_data_val" || ! -d "$root_data_val" ]]; then
+            [[ $quiet_mode -eq 1 ]] && printf "[%s]\n" "$col_link"
             log_error "  Missing storage root '$root_data' (${root_data_val:-unset or unmounted})"
             failed=$((failed + 1))
             continue
         fi
 
         if [[ -z "$root_meta_val" || ! -d "$root_meta_val" ]]; then
+            [[ $quiet_mode -eq 1 ]] && printf "[%s]\n" "$col_link"
             log_error "  Missing metadata root '$root_meta' (${root_meta_val:-unset or unmounted})"
             failed=$((failed + 1))
             continue
@@ -1193,12 +1577,14 @@ cmd_verify() {
 
         # 1. Existence checks
         if [[ ! -f "$abs_data" ]]; then
+            [[ $quiet_mode -eq 1 ]] && printf "[%s]\n" "$col_link"
             log_error "  Missing binary data file: $abs_data"
             failed=$((failed + 1))
             continue
         fi
 
         if [[ ! -f "$abs_meta" ]]; then
+            [[ $quiet_mode -eq 1 ]] && printf "[%s]\n" "$col_link"
             log_error "  Missing upstream checksum file: $abs_meta"
             failed=$((failed + 1))
             continue
@@ -1211,6 +1597,7 @@ cmd_verify() {
         mtime_meta=$(get_file_mtime "$abs_meta")
 
         if [[ "$mtime_data" -gt "$mtime_meta" ]]; then
+            [[ $quiet_mode -eq 1 ]] && printf "[%s]\n" "$col_link"
             log_error "  STALE CHECKSUM: Data file is newer than checksum file!"
             printf "    Data modified:     %s\n" "$(format_epoch "$mtime_data")" >&2
             printf "    Checksum modified: %s\n" "$(format_epoch "$mtime_meta")" >&2
@@ -1223,6 +1610,7 @@ cmd_verify() {
         upstream_hash=$(extract_hash_from_checksum_file "$abs_meta" "$clean_data" "$clean_meta")
 
         if [[ -z "$upstream_hash" ]]; then
+            [[ $quiet_mode -eq 1 ]] && printf "[%s]\n" "$col_link"
             log_error "  Could not parse hash for '${clean_data}' from ${abs_meta}"
             failed=$((failed + 1))
             continue
@@ -1234,6 +1622,7 @@ cmd_verify() {
         norm_col=$(to_lower "$col_hash")
 
         if [[ "$norm_upstream" != "$norm_col" ]]; then
+            [[ $quiet_mode -eq 1 ]] && printf "[%s]\n" "$col_link"
             log_error "  HASH MISMATCH with upstream metadata file!"
             printf "    Locked in TSV: %s\n" "$col_hash" >&2
             printf "    Upstream meta: %s\n" "$upstream_hash" >&2
@@ -1258,20 +1647,26 @@ cmd_verify() {
             fi
             printf "  ✓ Deep verification passed (hash: %s)\n" "$computed_hash"
         else
-            printf "  ✓ Tier 1 Handshake verified (hash: %s)\n" "$upstream_hash"
+            if [[ $quiet_mode -eq 0 ]]; then
+                printf "  ✓ Tier 1 Handshake verified (hash: %s)\n" "$upstream_hash"
+            fi
         fi
 
         passed=$((passed + 1))
     done < "$POINTERS_FILE"
 
-    printf "\nSummary: %d passed, %d failed out of %d total pointers.\n" "$passed" "$failed" "$total"
+    if [[ $quiet_mode -eq 0 || $failed -gt 0 ]]; then
+        printf "\nSummary: %d passed, %d failed out of %d total pointers.\n" "$passed" "$failed" "$total"
+    fi
 
     if [[ $failed -gt 0 ]]; then
         log_error "Verification failed for one or more files."
         exit 1
     fi
 
-    log_success "All pointers verified successfully."
+    if [[ $quiet_mode -eq 0 ]]; then
+        log_success "All pointers verified successfully."
+    fi
 }
 
 # Command: status [-v|--verbose]
@@ -2124,9 +2519,12 @@ Verification Tiers:
 
 Options:
   --deep                Run Tier 2 deep cryptographic hash verification
+  -q, --quiet           Quiet mode: only output summary and errors (used by git pre-commit)
+  -v, --verbose         Verbose mode: display item-by-item verification output
 
 Examples:
   $(basename "$0") verify
+  $(basename "$0") verify -q
   $(basename "$0") verify --deep
 EOF
 }

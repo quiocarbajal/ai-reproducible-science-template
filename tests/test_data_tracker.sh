@@ -41,7 +41,7 @@ cleanup() {
         cp "$BACKUP_ENV" "${PROJECT_ROOT}/.env" 2>/dev/null || true
     fi
     rm -rf "${PROJECT_ROOT}/.test_tmp"
-    rm -rf "${PROJECT_ROOT}/analyses" "${PROJECT_ROOT}/references" "${PROJECT_ROOT}/experiments" "${PROJECT_ROOT}/raw_data" "${PROJECT_ROOT}/Bigwigs" "${PROJECT_ROOT}/Bigwigs_Abs" "${PROJECT_ROOT}/Bigwigs_Junk" "${PROJECT_ROOT}/Cohort_50" 2>/dev/null || true
+    rm -rf "${PROJECT_ROOT}/analyses" "${PROJECT_ROOT}/references" "${PROJECT_ROOT}/experiments" "${PROJECT_ROOT}/raw_data" "${PROJECT_ROOT}/Bigwigs" "${PROJECT_ROOT}/Bigwigs_Abs" "${PROJECT_ROOT}/Bigwigs_Junk" "${PROJECT_ROOT}/Cohort_50" "${PROJECT_ROOT}/Perf_50" "${PROJECT_ROOT}/ref_genome.fa.gz" "${PROJECT_ROOT}/collision_a.bam" "${PROJECT_ROOT}/collision_b.bam" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -553,7 +553,67 @@ echo "$STATUS_BROKEN_HOOK_OUT" | grep -q "\[BROKEN\]"
 test_assert "Status flags Git pre-commit hook as BROKEN when target is missing" $?
 
 # ------------------------------------------------------------------------------
-# Test 20: Git Pre-Commit Hook Integration
+# Test 20: Basename Collision Disambiguation Across Subdirectories
+# ------------------------------------------------------------------------------
+# Create files with identical basenames in different subdirectories
+mkdir -p "${MOCK_ROOT}/collision_study/sub_a" "${MOCK_ROOT}/collision_study/sub_b"
+echo "COLLISION SAMPLE A" > "${MOCK_ROOT}/collision_study/sub_a/data.bam"
+echo "COLLISION SAMPLE B DIFFERENT CONTENT" > "${MOCK_ROOT}/collision_study/sub_b/data.bam"
+HASH_COLL_A=$(md5 -q "${MOCK_ROOT}/collision_study/sub_a/data.bam" 2>/dev/null || md5sum "${MOCK_ROOT}/collision_study/sub_a/data.bam" | awk '{print $1}')
+HASH_COLL_B=$(md5 -q "${MOCK_ROOT}/collision_study/sub_b/data.bam" 2>/dev/null || md5sum "${MOCK_ROOT}/collision_study/sub_b/data.bam" | awk '{print $1}')
+sleep 1
+
+# Single manifest where sub_a/data.bam appears BEFORE sub_b/data.bam
+cat << EOF > "${MOCK_ROOT}/collision_study/checksums.tsv"
+sub_a/data.bam	${HASH_COLL_A}
+sub_b/data.bam	${HASH_COLL_B}
+EOF
+
+"$TRACKER" add "collision_a.bam" "collision_study/sub_a/data.bam" "collision_study/checksums.tsv" >/dev/null 2>&1
+"$TRACKER" add "collision_b.bam" "collision_study/sub_b/data.bam" "collision_study/checksums.tsv" >/dev/null 2>&1
+
+# Verify must correctly resolve both without false HASH MISMATCH
+"$TRACKER" verify >/dev/null 2>&1
+test_assert "Tier 1 verify accurately resolves identical basenames in different subdirs" $?
+
+# Verify verify -q (quiet mode) passes cleanly and produces no stdout on success
+VERIFY_QUIET_OUT=$("$TRACKER" verify -q)
+test_assert "Tier 1 verify -q runs cleanly and outputs nothing on success" $([ -z "$VERIFY_QUIET_OUT" ] && echo 0 || echo 1)
+
+# ------------------------------------------------------------------------------
+# Test 21: High-Volume Verification Performance (< 1s for 100+ pointers)
+# ------------------------------------------------------------------------------
+mkdir -p "${MOCK_ROOT}/perf_cohort"
+for i in $(seq 1 50); do
+    echo "perf content $i" > "${MOCK_ROOT}/perf_cohort/f_${i}.txt"
+done
+sleep 1
+(
+    for f in "${MOCK_ROOT}/perf_cohort"/*.txt; do
+        rel_f="$(basename "$f")"
+        h=$(md5 -q "$f" 2>/dev/null || md5sum "$f" | awk '{print $1}')
+        printf "%s\t%s\n" "$rel_f" "$h"
+    done
+) > "${MOCK_ROOT}/perf_cohort/checksums.tsv"
+
+"$TRACKER" add-batch "Perf_50" "perf_cohort" "perf_cohort/checksums.tsv" >/dev/null 2>&1
+
+# Measure verify execution time across all tracked pointers (now over 100 pointers)
+TEST_PY="python3"
+if /usr/bin/python3 -c "import sys" >/dev/null 2>&1; then
+    TEST_PY="/usr/bin/python3"
+fi
+
+PERF_START=$("$TEST_PY" -c 'import time; print(time.time())')
+"$TRACKER" verify -q
+PERF_END=$("$TEST_PY" -c 'import time; print(time.time())')
+PERF_ELAPSED=$("$TEST_PY" -c "print(round($PERF_END - $PERF_START, 3))")
+PERF_FAST=$("$TEST_PY" -c "print(1 if ($PERF_END - $PERF_START) < 1.0 else 0)")
+
+test_assert "Tier 1 handshake completes in under 1 second (${PERF_ELAPSED}s for 100+ pointers)" $([ "$PERF_FAST" -eq 1 ] && echo 0 || echo 1)
+
+# ------------------------------------------------------------------------------
+# Test 22: Git Pre-Commit Hook Integration
 # ------------------------------------------------------------------------------
 # Pre-commit hook should pass right now
 if bash "${PROJECT_ROOT}/.githooks/pre-commit" >/dev/null 2>&1; then

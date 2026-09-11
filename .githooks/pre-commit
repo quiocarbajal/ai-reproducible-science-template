@@ -34,8 +34,8 @@ if [[ ! -x "$TRACKER" ]]; then
     exit 1
 fi
 
-# Execute Tier 1 fast verification
-if ! "$TRACKER" verify; then
+# Execute Tier 1 fast verification (quiet mode)
+if ! "$TRACKER" verify -q; then
     printf "\n\033[0;31m[FATAL] Pre-commit verification failed!\033[0m\n" >&2
     printf "  A data pointer mismatch, missing file, or stale upstream checksum was detected.\n" >&2
     printf "  Remediation options:\n" >&2
