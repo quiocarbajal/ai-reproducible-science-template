@@ -41,7 +41,7 @@ cleanup() {
         cp "$BACKUP_ENV" "${PROJECT_ROOT}/.env" 2>/dev/null || true
     fi
     rm -rf "${PROJECT_ROOT}/.test_tmp"
-    rm -rf "${PROJECT_ROOT}/analyses" "${PROJECT_ROOT}/references" "${PROJECT_ROOT}/experiments" "${PROJECT_ROOT}/raw_data" "${PROJECT_ROOT}/Bigwigs" "${PROJECT_ROOT}/Bigwigs_Abs" "${PROJECT_ROOT}/Bigwigs_Junk" 2>/dev/null || true
+    rm -rf "${PROJECT_ROOT}/analyses" "${PROJECT_ROOT}/references" "${PROJECT_ROOT}/experiments" "${PROJECT_ROOT}/raw_data" "${PROJECT_ROOT}/Bigwigs" "${PROJECT_ROOT}/Bigwigs_Abs" "${PROJECT_ROOT}/Bigwigs_Junk" "${PROJECT_ROOT}/Cohort_50" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -421,6 +421,26 @@ echo "APPLEDOUBLE JUNK" > "${MOCK_ROOT}/nested_study/sub1/._track2.bw"
 # Verify add-batch safely skips them and does not fail on missing checksums
 "$TRACKER" add-batch -r "Bigwigs_Junk" "${MOCK_ROOT}/nested_study" "${MOCK_ROOT}/nested_study/checksums.tsv" >/dev/null 2>&1
 test_assert "add-batch ignores .DS_Store, AppleDouble ._*, and OS metadata files" $?
+
+# Verify single-pass batch import handles 50 nested files cleanly and quickly
+mkdir -p "${MOCK_ROOT}/large_cohort/sub1" "${MOCK_ROOT}/large_cohort/sub2" "${MOCK_ROOT}/large_cohort/sub3"
+for i in $(seq 1 50); do
+    sub=$(( (i % 3) + 1 ))
+    echo "content $i" > "${MOCK_ROOT}/large_cohort/sub${sub}/f_${i}.txt"
+done
+(
+    for sub in 1 2 3; do
+        for f in "${MOCK_ROOT}/large_cohort/sub${sub}"/*.txt; do
+            rel_f="sub${sub}/$(basename "$f")"
+            h=$(md5 -q "$f" 2>/dev/null || md5sum "$f" | awk '{print $1}')
+            printf "%s\t%s\n" "$rel_f" "$h"
+        done
+    done
+) > "${MOCK_ROOT}/large_cohort/checksums.tsv"
+"$TRACKER" add-batch -r "Cohort_50" "${MOCK_ROOT}/large_cohort" "${MOCK_ROOT}/large_cohort/checksums.tsv" >/dev/null 2>&1
+test_assert "add-batch -r processes high-volume cohort (50 files) in single pass" $?
+test_assert "high-volume batch registered all 50 files in local_pointers.tsv" $([ $(grep -c "^Cohort_50/" "${PROJECT_ROOT}/local_pointers.tsv") -eq 50 ] && echo 0 || echo 1)
+
 
 # ------------------------------------------------------------------------------
 # Test 17: Directory Symlink Detection & Flagging in adopt

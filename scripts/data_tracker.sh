@@ -621,11 +621,20 @@ cmd_add_batch() {
     rel_checksum_file="$(normalize_to_spec "$rel_checksum_file")"
 
     resolve_symlink_dir
+    ensure_pointers_file
+
     local abs_source_dir
+    local abs_meta
     abs_source_dir="$(resolve_source_path "$rel_source_dir")"
+    abs_meta="$(resolve_source_path "$rel_checksum_file")"
 
     if [[ ! -d "$abs_source_dir" ]]; then
         log_error "Source directory does not exist: $abs_source_dir"
+        exit 1
+    fi
+
+    if [[ ! -f "$abs_meta" ]]; then
+        log_error "Source checksum file does not exist: $abs_meta"
         exit 1
     fi
 
@@ -633,6 +642,11 @@ cmd_add_batch() {
     root_data="$(get_root_var_from_spec "$rel_source_dir")"
     local clean_source_dir
     clean_source_dir="$(get_rel_path_from_spec "$rel_source_dir")"
+
+    local clean_meta
+    clean_meta="$(get_rel_path_from_spec "$rel_checksum_file")"
+    local meta_dir
+    meta_dir="$(dirname "$clean_meta")"
 
     print_header "Batch Adding Pointers from ${rel_source_dir}"
     if [[ "$SYMLINK_DIR" == "$REPO_ROOT" ]]; then
@@ -644,55 +658,274 @@ cmd_add_batch() {
     [[ -n "$pattern" ]] && log_info "Filter pattern:        ${pattern}"
     [[ $recursive -eq 1 ]] && log_info "Recursive mode:        Enabled (recreating real directories locally)"
 
-    local count=0
+    # Fast file discovery
+    local candidate_list
+    candidate_list="$(mktemp "${TMPDIR:-/tmp}/candidates.tmp.XXXXXX")"
+    local filtered_candidates
+    filtered_candidates="$(mktemp "${TMPDIR:-/tmp}/filtered_candidates.tmp.XXXXXX")"
+    local matches_file
+    matches_file="$(mktemp "${TMPDIR:-/tmp}/matches.tmp.XXXXXX")"
+    local tmp_pointers
+    tmp_pointers="$(mktemp "${TMPDIR:-/tmp}/pointers.tmp.XXXXXX")"
+
+    cleanup_batch_tmps() {
+        rm -f "$candidate_list" "$filtered_candidates" "$matches_file" "$tmp_pointers" 2>/dev/null || true
+    }
+    trap cleanup_batch_tmps RETURN INT TERM
+
+    if [[ $recursive -eq 1 ]]; then
+        if [[ -n "$pattern" ]]; then
+            find "$abs_source_dir" -type f -name "$pattern" | sort > "$candidate_list"
+        else
+            find "$abs_source_dir" -type f | sort > "$candidate_list"
+        fi
+    else
+        if [[ -n "$pattern" ]]; then
+            find "$abs_source_dir" -maxdepth 1 -type f -name "$pattern" | sort > "$candidate_list"
+        else
+            find "$abs_source_dir" -maxdepth 1 -type f | sort > "$candidate_list"
+        fi
+    fi
+
+    # Filter out OS artifacts and hidden system files
     while IFS= read -r f; do
         [[ -z "$f" ]] && continue
         if is_system_or_metadata_file "$f"; then
             continue
         fi
         local subpath
-        if [[ $recursive -eq 1 ]]; then
-            subpath="${f#"${abs_source_dir}/"}"
-        else
-            subpath="$(basename "$f")"
-        fi
-
-        # Skip any file inside a hidden subdirectory (e.g. .cache/file.bw)
+        subpath="${f#"${abs_source_dir}/"}"
         if [[ "$subpath" =~ (^|/)\.[^/] ]]; then
             continue
         fi
+        printf "%s\n" "$f" >> "$filtered_candidates"
+    done < "$candidate_list"
+    rm -f "$candidate_list"
 
-        local link_name
-        if [[ -z "$dest_subdir" || "$dest_subdir" == "." ]]; then
-            link_name="$subpath"
-        else
-            link_name="${dest_subdir}/${subpath}"
-        fi
+    local candidate_count
+    candidate_count=$(wc -l < "$filtered_candidates" | tr -d ' ')
+    if [[ "$candidate_count" -eq 0 ]]; then
+        log_warn "No matching candidate files found in ${abs_source_dir}"
+        cleanup_batch_tmps
+        return 0
+    fi
 
-        local rel_data_path
-        if [[ "$root_data" == "DATA_ROOT" ]]; then
-            rel_data_path="${clean_source_dir}/${subpath}"
-        else
-            rel_data_path="${root_data}:${clean_source_dir}/${subpath}"
-        fi
+    # High-performance single-pass hash matching via awk
+    awk -F'\t' \
+        -v abs_src="${abs_source_dir}" \
+        -v clean_src="${clean_source_dir}" \
+        -v root_data="${root_data}" \
+        -v meta_dir="${meta_dir}" \
+        -v dest_sub="${dest_subdir}" \
+        -v symlink_dir="${SYMLINK_DIR}" \
+        -v rel_meta="${rel_checksum_file}" \
+        -v recursive="${recursive}" '
+    BEGIN {
+        OFS = "\t"
+    }
+    # Pass 1: Parse abs_meta into memory
+    NR == FNR {
+        gsub(/\r/, "")
+        line = $0
+        if (line ~ /^[A-Za-z0-9_-]+ \(.+\) = [0-9a-fA-F]+$/) {
+            match(line, /\(.*\)/)
+            f = substr(line, RSTART + 1, RLENGTH - 2)
+            h = tolower($NF)
+            hashes[f] = h
+            sub(/.*\//, "", f)
+            base_hashes[f] = h
+            next
+        }
+        if ($NF ~ /^[0-9a-fA-F]{32,128}$/ || $2 ~ /^[0-9a-fA-F]{32,128}$/) {
+            f = $1
+            h = ($2 ~ /^[0-9a-fA-F]{32,128}$/) ? tolower($2) : tolower($NF)
+            hashes[f] = h
+            sub(/^\.\//, "", f)
+            hashes[f] = h
+            sub(/.*\//, "", f)
+            base_hashes[f] = h
+            next
+        }
+        if ($1 ~ /^[0-9a-fA-F]{32,128}$/ && NF >= 2) {
+            h = tolower($1)
+            sub(/^[0-9a-fA-F]+[ \t]+\*?/, "", line)
+            f = line
+            hashes[f] = h
+            sub(/^\.\//, "", f)
+            hashes[f] = h
+            sub(/.*\//, "", f)
+            base_hashes[f] = h
+            next
+        }
+        next
+    }
+    # Pass 2: Stream candidate files
+    {
+        abs_f = $0
+        if (abs_f == "") next
 
-        cmd_add "$link_name" "$rel_data_path" "$rel_checksum_file"
+        subpath = substr(abs_f, length(abs_src) + 2)
+        if (recursive != 1) {
+            sub(/.*\//, "", subpath)
+        }
+
+        if (dest_sub == "" || dest_sub == ".") {
+            link_name = subpath
+        } else {
+            link_name = dest_sub "/" subpath
+        }
+
+        clean_data_path = clean_src "/" subpath
+        if (root_data == "DATA_ROOT") {
+            rel_data_spec = clean_data_path
+        } else {
+            rel_data_spec = root_data ":" clean_data_path
+        }
+
+        rel_from_meta = clean_data_path
+        if (meta_dir != "." && substr(clean_data_path, 1, length(meta_dir) + 1) == (meta_dir "/")) {
+            rel_from_meta = substr(clean_data_path, length(meta_dir) + 2)
+        }
+
+        base_f = subpath
+        sub(/.*\//, "", base_f)
+
+        found_hash = ""
+        if (clean_data_path in hashes) {
+            found_hash = hashes[clean_data_path]
+        } else if (subpath in hashes) {
+            found_hash = hashes[subpath]
+        } else if (rel_from_meta in hashes) {
+            found_hash = hashes[rel_from_meta]
+        } else if (("./" rel_from_meta) in hashes) {
+            found_hash = hashes["./" rel_from_meta]
+        } else if (base_f in base_hashes) {
+            found_hash = base_hashes[base_f]
+        }
+
+        link_target = symlink_dir "/" link_name
+
+        if (found_hash == "") {
+            printf "MISSING\t%s\t%s\n", clean_data_path, abs_f
+        } else {
+            printf "MATCH\t%s\t%s\t%s\t%s\t%s\t%s\n", link_name, rel_data_spec, rel_meta, found_hash, link_target, abs_f
+        }
+    }
+    ' "$abs_meta" "$filtered_candidates" > "$matches_file"
+
+    rm -f "$filtered_candidates"
+
+    # Check for any missing hashes
+    local missing_count
+    missing_count=$(grep -c "^MISSING" "$matches_file" || true)
+    if [[ $missing_count -gt 0 ]]; then
+        while IFS=$'\t' read -r status clean_path abs_path; do
+            if [[ "$status" == "MISSING" ]]; then
+                log_error "Failed to parse hash for '${clean_path}' from upstream metadata: $abs_meta"
+            fi
+        done < "$matches_file"
+        cleanup_batch_tmps
+        exit 1
+    fi
+
+    # Stale Checksum Guard (evaluates in milliseconds)
+    local mtime_meta
+    mtime_meta=$(get_file_mtime "$abs_meta")
+
+    local py_cmd=""
+    if /usr/bin/python3 -c "import sys" >/dev/null 2>&1; then
+        py_cmd="/usr/bin/python3"
+    elif python3 -c "import sys" >/dev/null 2>&1; then
+        py_cmd="python3"
+    fi
+
+    local stale_file=""
+    if [[ -n "$py_cmd" ]]; then
+        stale_file="$(awk -F'\t' '{print $7}' "$matches_file" | "$py_cmd" -c '
+import os, sys
+meta_mtime = int(sys.argv[1])
+for line in sys.stdin:
+    p = line.rstrip("\n")
+    if p and os.path.isfile(p):
+        try:
+            if int(os.path.getmtime(p)) > meta_mtime:
+                print(p)
+                sys.exit(0)
+        except OSError:
+            pass
+' "$mtime_meta" 2>/dev/null || true)"
+    else
+        while IFS=$'\t' read -r status l_name r_data r_meta r_hash l_target abs_file; do
+            local mt
+            mt=$(get_file_mtime "$abs_file")
+            if [[ "$mt" -gt "$mtime_meta" ]]; then
+                stale_file="$abs_file"
+                break
+            fi
+        done < "$matches_file"
+    fi
+
+    if [[ -n "$stale_file" ]]; then
+        local mtime_stale
+        mtime_stale=$(get_file_mtime "$stale_file")
+        log_error "Stale Checksum Guard triggered!"
+        printf "  The upstream data file is newer than the checksum file:\n" >&2
+        printf "  Data file:     %s (%s)\n" "$stale_file" "$(format_epoch "$mtime_stale")" >&2
+        printf "  Checksum file: %s (%s)\n" "$abs_meta" "$(format_epoch "$mtime_meta")" >&2
+        printf "  Aborting: The upstream checksum file is out of date. Update it upstream first.\n" >&2
+        cleanup_batch_tmps
+        exit 1
+    fi
+
+    # Bulk create unique parent directories
+    local -a unique_dirs=()
+    while IFS=$'\t' read -r status l_name r_data r_meta r_hash l_target abs_file; do
+        unique_dirs+=("$(dirname "$l_target")")
+    done < "$matches_file"
+
+    if [[ ${#unique_dirs[@]} -gt 0 ]]; then
+        while IFS= read -r udir; do
+            [[ -n "$udir" ]] && mkdir -p "$udir"
+        done < <(printf "%s\n" "${unique_dirs[@]}" | sort -u)
+    fi
+
+    # Fast symlink provisioning
+    local count=0
+    while IFS=$'\t' read -r status l_name r_data r_meta r_hash l_target abs_file; do
+        ln -sfn "$abs_file" "$l_target"
         count=$((count + 1))
-    done < <(
-        if [[ $recursive -eq 1 ]]; then
-            if [[ -n "$pattern" ]]; then
-                find "$abs_source_dir" -type f -name "$pattern" | sort
-            else
-                find "$abs_source_dir" -type f | sort
-            fi
-        else
-            if [[ -n "$pattern" ]]; then
-                find "$abs_source_dir" -maxdepth 1 -type f -name "$pattern" | sort
-            else
-                find "$abs_source_dir" -maxdepth 1 -type f | sort
-            fi
-        fi
-    )
+    done < "$matches_file"
+
+    # Single atomic merge into local_pointers.tsv
+    awk -F'\t' '
+    BEGIN { OFS = "\t" }
+    NR == FNR {
+        if ($1 == "MATCH") {
+            new_pointers[$2] = sprintf("%s\t%s\t%s\t%s", $2, $3, $4, $5)
+        }
+        next
+    }
+    {
+        if (FNR == 1) {
+            print $0
+            next
+        }
+        if ($1 in new_pointers) {
+            print new_pointers[$1]
+            delete new_pointers[$1]
+        } else {
+            print $0
+        }
+    }
+    END {
+        for (link in new_pointers) {
+            print new_pointers[link]
+        }
+    }
+    ' "$matches_file" "$POINTERS_FILE" > "$tmp_pointers"
+
+    mv "$tmp_pointers" "$POINTERS_FILE"
+    cleanup_batch_tmps
 
     if [[ "$SYMLINK_DIR" == "$REPO_ROOT" ]]; then
         printf "\n${GREEN}[SUCCESS]${NC} Batch added %d pointers into %s\n\n" "$count" "$dest_subdir"
