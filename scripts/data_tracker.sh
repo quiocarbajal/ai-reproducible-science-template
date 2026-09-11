@@ -478,6 +478,49 @@ cmd_install_hook() {
     fi
 }
 
+# Check status of Git pre-commit hook installation
+get_git_hook_status() {
+    local git_dir
+    if ! git_dir="$(git -C "$REPO_ROOT" rev-parse --git-dir 2>/dev/null)"; then
+        echo "NOT_GIT"
+        return 0
+    fi
+
+    local hooks_path
+    hooks_path="$(git -C "$REPO_ROOT" config core.hooksPath 2>/dev/null || true)"
+
+    if [[ -n "$hooks_path" ]]; then
+        local full_path="$hooks_path"
+        if [[ "$full_path" != /* ]]; then
+            full_path="${REPO_ROOT}/${full_path}"
+        fi
+        if [[ -x "${full_path}/pre-commit" ]]; then
+            echo "INSTALLED:core.hooksPath -> ${hooks_path}"
+            return 0
+        elif [[ -f "${full_path}/pre-commit" ]]; then
+            echo "NOT_EXECUTABLE:${hooks_path}/pre-commit"
+            return 0
+        else
+            echo "MISSING_FILE:${hooks_path}/pre-commit"
+            return 0
+        fi
+    fi
+
+    if [[ "$git_dir" != /* ]]; then
+        git_dir="${REPO_ROOT}/${git_dir}"
+    fi
+
+    if [[ -x "${git_dir}/hooks/pre-commit" ]]; then
+        echo "INSTALLED:.git/hooks/pre-commit"
+        return 0
+    elif [[ -f "${git_dir}/hooks/pre-commit" ]]; then
+        echo "NOT_EXECUTABLE:.git/hooks/pre-commit"
+        return 0
+    fi
+
+    echo "NOT_INSTALLED"
+}
+
 # Command: add <link_name> <relative_source_path> <relative_source_metadata_path>
 cmd_add() {
     local link_name="${1:-}"
@@ -1225,8 +1268,21 @@ cmd_verify() {
     log_success "All pointers verified successfully."
 }
 
-# Command: status
+# Command: status [-v|--verbose]
 cmd_status() {
+    local verbose=0
+
+    for arg in "$@"; do
+        case "$arg" in
+            -v|--verbose)
+                verbose=1
+                ;;
+            *)
+                log_warn "Unknown option for status: $arg"
+                ;;
+        esac
+    done
+
     resolve_symlink_dir
     ensure_pointers_file
     print_header "Scientific Data-Tracking Status"
@@ -1237,6 +1293,29 @@ cmd_status() {
     else
         printf "Symlinks Dir:  %s\n" "$SYMLINK_DIR"
     fi
+
+    local hook_raw
+    hook_raw="$(get_git_hook_status)"
+    case "$hook_raw" in
+        INSTALLED:*)
+            local hook_detail="${hook_raw#INSTALLED:}"
+            printf "Git Hook:      ${GREEN}[INSTALLED]${NC} (%s)\n" "$hook_detail"
+            ;;
+        NOT_EXECUTABLE:*)
+            local hook_detail="${hook_raw#NOT_EXECUTABLE:}"
+            printf "Git Hook:      ${YELLOW}[NOT EXECUTABLE]${NC} (%s is not executable)\n" "$hook_detail"
+            ;;
+        MISSING_FILE:*)
+            local hook_detail="${hook_raw#MISSING_FILE:}"
+            printf "Git Hook:      ${RED}[BROKEN]${NC} (%s not found - run '$0 install-hook')\n" "$hook_detail"
+            ;;
+        NOT_INSTALLED)
+            printf "Git Hook:      ${YELLOW}[NOT INSTALLED]${NC} (Run '$0 install-hook' to activate pre-commit guard)\n"
+            ;;
+        NOT_GIT)
+            printf "Git Hook:      [N/A] (Not a git repository)\n"
+            ;;
+    esac
 
     printf "\nConfigured Storage Roots:\n"
     local found_roots=0
@@ -1254,13 +1333,26 @@ cmd_status() {
     fi
     echo ""
 
-    printf "%-35s %-35s %-12s %s\n" "LINK NAME" "SOURCE SPEC" "LOCAL LINK" "LOCKED HASH"
-    printf "%-35s %-35s %-12s %s\n" "-----------------------------------" "-----------------------------------" "------------" "--------------------------------"
+    local tmp_all
+    local tmp_issues
+    tmp_all="$(mktemp "${TMPDIR:-/tmp}/status_all.tmp.XXXXXX")"
+    tmp_issues="$(mktemp "${TMPDIR:-/tmp}/status_issues.tmp.XXXXXX")"
+    cleanup_status_tmps() {
+        rm -f "$tmp_all" "$tmp_issues" 2>/dev/null || true
+    }
+    trap cleanup_status_tmps RETURN INT TERM
+
+    local total=0
+    local ok_count=0
+    local broken_count=0
+    local missing_count=0
 
     while IFS=$'\t' read -r col_link col_data col_meta col_hash || [[ -n "$col_link" ]]; do
         if [[ "$col_link" == "link_name" || -z "$col_link" || "$col_link" =~ ^# ]]; then
             continue
         fi
+
+        total=$((total + 1))
 
         local symlink_status="MISSING"
         local link_target="${SYMLINK_DIR}/${col_link}"
@@ -1272,9 +1364,71 @@ cmd_status() {
             fi
         fi
 
-        printf "%-35s %-35s %-12s %s\n" "$col_link" "$col_data" "$symlink_status" "$col_hash"
+        if [[ "$symlink_status" == "OK" ]]; then
+            ok_count=$((ok_count + 1))
+        elif [[ "$symlink_status" == "BROKEN" ]]; then
+            broken_count=$((broken_count + 1))
+        else
+            missing_count=$((missing_count + 1))
+        fi
+
+        local row
+        row="$(printf "%-35s %-35s %-12s %s" "$col_link" "$col_data" "$symlink_status" "$col_hash")"
+
+        printf "%s\n" "$row" >> "$tmp_all"
+        if [[ "$symlink_status" != "OK" ]]; then
+            printf "%s\n" "$row" >> "$tmp_issues"
+        fi
     done < "$POINTERS_FILE"
-    echo ""
+
+    local not_ok_count=$((broken_count + missing_count))
+
+    if [[ $verbose -eq 1 ]]; then
+        printf "%-35s %-35s %-12s %s\n" "LINK NAME" "SOURCE SPEC" "LOCAL LINK" "LOCKED HASH"
+        printf "%-35s %-35s %-12s %s\n" "-----------------------------------" "-----------------------------------" "------------" "--------------------------------"
+        if [[ $total -gt 0 ]]; then
+            cat "$tmp_all"
+        fi
+        echo ""
+        printf "Pointers Summary:\n"
+        printf "  Total tracked:  %d\n" "$total"
+        printf "  Healthy (OK):   %d\n" "$ok_count"
+        printf "  Broken:         %d\n" "$broken_count"
+        printf "  Missing:        %d\n" "$missing_count"
+        echo ""
+        if [[ $not_ok_count -gt 0 ]]; then
+            log_warn "${not_ok_count} tracked pointer(s) have issues. Run '$0 link' to repair missing or broken symlinks."
+        fi
+    else
+        printf "Pointers Summary:\n"
+        printf "  Total tracked:  %d\n" "$total"
+        printf "  Healthy (OK):   %d\n" "$ok_count"
+        printf "  Broken:         %d\n" "$broken_count"
+        printf "  Missing:        %d\n" "$missing_count"
+        echo ""
+
+        if [[ $total -eq 0 ]]; then
+            log_info "No pointers currently registered in $(basename "$POINTERS_FILE")."
+        elif [[ $not_ok_count -eq 0 ]]; then
+            log_success "All ${total} tracked pointer(s) are healthy (OK)."
+            printf "  (Run '$0 status -v' to view all entries file by file)\n\n"
+        else
+            printf "${YELLOW}[!] Pointers Requiring Attention (${not_ok_count}):${NC}\n"
+            printf "%-35s %-35s %-12s %s\n" "LINK NAME" "SOURCE SPEC" "LOCAL LINK" "LOCKED HASH"
+            printf "%-35s %-35s %-12s %s\n" "-----------------------------------" "-----------------------------------" "------------" "--------------------------------"
+            cat "$tmp_issues"
+            echo ""
+            log_warn "${not_ok_count} tracked pointer(s) are NOT ok."
+            printf "  Run '$0 link' to restore missing or broken symlinks.\n"
+            printf "  (Run '$0 status -v' to view all entries including healthy pointers)\n\n"
+        fi
+    fi
+
+    if [[ "$hook_raw" != INSTALLED:* && "$hook_raw" != "NOT_GIT" ]]; then
+        log_warn "Git pre-commit hook is not active. Run '$0 install-hook' to enforce verification before commits."
+    fi
+
+    cleanup_status_tmps
 }
 
 # Command: adopt [--dry-run] [--report] [filter flags]
@@ -2029,14 +2183,21 @@ EOF
 
 usage_status() {
     cat << EOF
-Usage: $(basename "$0") status
+Usage: $(basename "$0") status [-v|--verbose]
 
 Description:
-  Display an overview of all tracked pointers in local_pointers.tsv, including
-  target paths, symlink health (OK, BROKEN, MISSING), and recorded hashes.
+  Display an overview of tracked pointers in local_pointers.tsv, storage roots,
+  symlink health, and Git pre-commit hook installation status.
+  By default, prints a high-level summary and lists file-by-file details only for
+  pointers that are NOT OK (BROKEN or MISSING). Use -v or --verbose to display all pointers.
+
+Options:
+  -v, --verbose    Display file-by-file status for all tracked pointers
 
 Examples:
   $(basename "$0") status
+  $(basename "$0") status -v
+  $(basename "$0") status --verbose
 EOF
 }
 
@@ -2140,7 +2301,7 @@ Commands:
   update <link_name>                   Pull latest hash from upstream metadata if legitimately updated
   relocate <old_str> <new_str>         Batch-replace path substrings in local_pointers.tsv
   link                                 Provision/refresh all symbolic links
-  status                               Display current pointer manifest and symlink health
+  status [-v|--verbose]               Display pointer summary and symlink health
   generate-checksums <dir> [opts]      Generate upstream checksums.tsv for an external data directory
   install-hook                         Configure Git pre-commit verification hook
   help [command]                       Show this help menu or specific help for a command
@@ -2184,6 +2345,7 @@ Examples:
   $(basename "$0") verify --deep
   $(basename "$0") link
   $(basename "$0") status
+  $(basename "$0") status -v
 EOF
 }
 

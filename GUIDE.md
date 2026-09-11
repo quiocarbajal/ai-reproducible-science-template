@@ -225,9 +225,13 @@ If you already have a running Git repository and want to retrofit this workflow:
 
 ### Recipe 1: Check System Status & Symlink Health
 ```bash
+# Print summary and show only pointers with issues (default)
 ./scripts/data_tracker.sh status
+
+# Print all registered pointers file-by-file
+./scripts/data_tracker.sh status --verbose   # or: status -v
 ```
-Prints a table of all registered pointers, target source paths, symlink statuses (`OK`, `MISSING`, `BROKEN`), and locked hashes.  
+By default, prints a high-level summary of all tracked pointers, storage root mounts, and Git pre-commit hook health, listing file-by-file details only for pointers that are NOT OK (`MISSING` or `BROKEN`). Use `--verbose` (or `-v`) to display all tracked pointers file by file.  
 
 ### Recipe 2: Provisioning Symlinks on a Fresh Clone / Machine
 When a collaborator or HPC job clones the repository:  
@@ -358,7 +362,7 @@ If adopting this framework on an already-started project where symlinks live in 
 | `./scripts/data_tracker.sh update <link>` | Pull updated upstream hash into TSV (requires human approval) |
 | `./scripts/data_tracker.sh relocate <old> <new>` | Batch rename paths in TSV & re-link |
 | `./scripts/data_tracker.sh link` | Provision / repair all symlinks across project |
-| `./scripts/data_tracker.sh status` | Display pointer table, root mounts, & symlink health |
+| `./scripts/data_tracker.sh status [-v]` | Display pointer summary, root mounts, & symlink health |
 | `./scripts/data_tracker.sh help [cmd]` or `<cmd> --help` | Display command-specific help documentation and examples |
 | `./tests/test_data_tracker.sh` | Run automated test suite (54 test assertions) |
 

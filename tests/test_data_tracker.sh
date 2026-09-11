@@ -492,8 +492,68 @@ HELP_VERIFY=$("$TRACKER" verify --help)
 echo "$HELP_VERIFY" | grep -q "Tier 1 (Fast Handshake"
 test_assert "verify --help documents verification tiers" $?
 
+# Test data_tracker.sh help status
+HELP_STATUS=$("$TRACKER" help status)
+echo "$HELP_STATUS" | grep -q -- "-v, --verbose"
+test_assert "help status documents -v and --verbose flags" $?
+
 # ------------------------------------------------------------------------------
-# Test 19: Git Pre-Commit Hook Integration
+# Test 19: Status Command Summary & Verbose Mode
+# ------------------------------------------------------------------------------
+# Provision links so all pointers match active project state
+"$TRACKER" link >/dev/null 2>&1
+
+STATUS_DEFAULT_OUT=$("$TRACKER" status)
+echo "$STATUS_DEFAULT_OUT" | grep -q "Pointers Summary:" && \
+echo "$STATUS_DEFAULT_OUT" | grep -q "healthy (OK)" && \
+! echo "$STATUS_DEFAULT_OUT" | grep -q "LINK NAME"
+test_assert "Status default outputs summary and suppresses table when all OK" $?
+
+STATUS_VERBOSE_OUT=$("$TRACKER" status -v)
+echo "$STATUS_VERBOSE_OUT" | grep -q "Pointers Summary:" && \
+echo "$STATUS_VERBOSE_OUT" | grep -q "LINK NAME"
+test_assert "Status -v outputs full table and summary" $?
+
+# Break one symlink to test partial issue reporting in default mode
+TEST_BROKEN_LINK=$(awk -F'\t' 'NR==2 {print $1}' "${PROJECT_ROOT}/local_pointers.tsv")
+if [[ "$SYMLINK_DIR" == "$PROJECT_ROOT" ]]; then
+    TARGET_LINK_PATH="${PROJECT_ROOT}/${TEST_BROKEN_LINK}"
+else
+    TARGET_LINK_PATH="${PROJECT_ROOT}/raw_data/${TEST_BROKEN_LINK}"
+fi
+rm -f "$TARGET_LINK_PATH"
+
+STATUS_ISSUE_OUT=$("$TRACKER" status)
+echo "$STATUS_ISSUE_OUT" | grep -q "Pointers Summary:" && \
+echo "$STATUS_ISSUE_OUT" | grep -q "Pointers Requiring Attention" && \
+echo "$STATUS_ISSUE_OUT" | grep -q "$TEST_BROKEN_LINK"
+test_assert "Status default lists only problematic files when issues are present" $?
+
+# Restore symlink and check that status recovers
+"$TRACKER" link >/dev/null 2>&1
+STATUS_RECOVER_OUT=$("$TRACKER" status)
+echo "$STATUS_RECOVER_OUT" | grep -q "healthy (OK)" && \
+! echo "$STATUS_RECOVER_OUT" | grep -q "Pointers Requiring Attention"
+test_assert "Status returns to clean summary after restoring symlinks" $?
+
+# Verify Git Hook status reporting in status output
+echo "$STATUS_RECOVER_OUT" | grep -q "Git Hook:" && \
+echo "$STATUS_RECOVER_OUT" | grep -q "\[INSTALLED\]"
+test_assert "Status inspects and reports Git pre-commit hook as INSTALLED" $?
+
+# Verify NOT INSTALLED detection when core.hooksPath is empty
+STATUS_UNINSTALLED_OUT=$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="core.hooksPath" GIT_CONFIG_VALUE_0="" "$TRACKER" status)
+echo "$STATUS_UNINSTALLED_OUT" | grep -q "Git Hook:" && \
+echo "$STATUS_UNINSTALLED_OUT" | grep -q "\[NOT INSTALLED\]"
+test_assert "Status flags Git pre-commit hook as NOT INSTALLED when unconfigured" $?
+
+# Verify BROKEN detection when core.hooksPath points to missing directory
+STATUS_BROKEN_HOOK_OUT=$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="core.hooksPath" GIT_CONFIG_VALUE_0=".missing_hooks" "$TRACKER" status)
+echo "$STATUS_BROKEN_HOOK_OUT" | grep -q "\[BROKEN\]"
+test_assert "Status flags Git pre-commit hook as BROKEN when target is missing" $?
+
+# ------------------------------------------------------------------------------
+# Test 20: Git Pre-Commit Hook Integration
 # ------------------------------------------------------------------------------
 # Pre-commit hook should pass right now
 if bash "${PROJECT_ROOT}/.githooks/pre-commit" >/dev/null 2>&1; then
